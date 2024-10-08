@@ -53,17 +53,11 @@ def main() -> None:
     simulate_stock_and_plot({"Stock0": {'name': "norm", "generator":
         lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT))}})
 
-    print()
-
     simulate_stock_and_plot({"Stock0": {"name": "beta", "generator":
         lambda: np.random.beta(BETA_A, BETA_B) - BETA_SHIFT}})
 
-    print()
-
     ## Part 3
     simulate_stock_and_plot(stock_distributions)
-
-    print()
 
 def process_stock(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
     """
