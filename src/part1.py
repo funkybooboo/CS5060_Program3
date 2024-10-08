@@ -37,6 +37,9 @@ def main() -> None:
 
         # Fit distributions to normalized data
         fits: Dict[str, Tuple] = fit_distributions(normalized_data)
+        
+        # fit beta distribution to denormalized data
+        denormalized_fits = fit_denormalized_distributions(data)
 
         # Plot fitted distributions
         plot_fitted_distributions(normalized_data, fits)
@@ -104,6 +107,17 @@ def fit_distributions(data: pd.Series) -> Dict[str, Tuple]:
     fits: Dict[str, Tuple] = {}
     for name, distribution in DISTRIBUTIONS.items():
         try:
+            fits[name] = distribution.fit(data)
+        except Exception as e:
+            print(f"Fitting {name} distribution failed: {e}")
+    return fits
+
+def fit_denormalized_distributions(data: pd.Series) -> Dict[str, Tuple]:
+    """Fit various distributions, including beta, to the denormalized price data."""
+    fits: Dict[str, Tuple] = {}
+    for name, distribution in DISTRIBUTIONS.items():
+        try:
+            # Fit directly to denormalized data
             fits[name] = distribution.fit(data)
         except Exception as e:
             print(f"Fitting {name} distribution failed: {e}")
