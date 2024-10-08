@@ -212,31 +212,21 @@ def goodness_of_fit(data: pd.Series, fits: Dict[str, Dict[str, Tuple]]) -> Dict[
     return results
 
 def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> None:
-    stocks_price_paths: List[np.ndarray] = []
     stock_names: List[str] = list(stock_distributions.keys())
-    simulation_name: str = ""
 
-    for i in range(len(stock_names)):
-        stock_name: str = stock_names[i]
-        distribution_name = stock_distributions[stock_name]["name"]
-        simulation_name += f"{stock_name} {distribution_name}\n"
-
-        random_generator: Callable[[], float] = stock_distributions[stock_name]['generator']
-        stock_price_paths: np.ndarray = generate_stock_price_paths(random_generator)
-        stocks_price_paths.append(stock_price_paths)
+    simulation_name, stocks_price_paths = get_stocks_price_paths(stock_distributions, stock_names)
 
     pricings: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
 
     plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
 
-    # TODO Bug fix somewhere in here
     average_final_price = get_average_final_price(pricings, stock_names)
 
-    max_final_price = get_max_final_price(pricings, stock_names)
+    max_final_prices = get_max_final_prices(pricings, stock_names)
 
-    outperforms_average = get_outperforms(average_final_price, pricings, stock_names)
+    outperforms_average: bool = get_outperforms_average(average_final_price, pricings, stock_names)
 
-    outperforms_max: bool = get_outperforms(max_final_price, pricings, stock_names) # TODO may have to fix
+    outperforms_max: bool = get_outperforms_max(max_final_prices, pricings, stock_names) 
 
     basket_option_payoffs = get_basket_option_payoffs(pricings, stock_names)
 
@@ -251,12 +241,26 @@ def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> N
     print()
     print("Scenario 2:")
     if outperforms_max:
-        print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${max_final_price:.2f}")
+        print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${np.average(max_final_prices):.2f}")
         print(f"Max payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
         print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
     else:
         print("Did not outperform max, no payoff.")
     print()
+
+def get_stocks_price_paths(stock_distributions, stock_names):
+    simulation_name: str = ""
+    stocks_price_paths: List[np.ndarray] = []
+    for i in range(len(stock_names)):
+        stock_name: str = stock_names[i]
+        distribution_name = stock_distributions[stock_name]["name"]
+        simulation_name += f"{stock_name} {distribution_name}\n"
+
+        random_generator: Callable[[], float] = stock_distributions[stock_name]['generator']
+        stock_price_paths: np.ndarray = generate_stock_price_paths(random_generator)
+        stocks_price_paths.append(stock_price_paths)
+    return simulation_name, stocks_price_paths
+
 
 def get_basket_option_payoffs(pricings, stock_names):
     basket_option_payoffs: float = 0
@@ -267,7 +271,7 @@ def get_basket_option_payoffs(pricings, stock_names):
     basket_option_payoffs /= len(stock_names)
     return basket_option_payoffs
 
-def get_outperforms(average_final_price, pricings, stock_names):
+def get_outperforms_average(average_final_price, pricings, stock_names):
     outperforms_average: bool = True
     for i in range(len(stock_names)):
         option_payoffs = pricings[i][0]
@@ -277,19 +281,29 @@ def get_outperforms(average_final_price, pricings, stock_names):
             break
     return outperforms_average
 
-def get_max_final_price(pricings, stock_names):
-    max_final_price: float = 0
+def get_outperforms_max(max_final_prices, pricings, stock_names):
+    outperforms_max: bool = True
+    for i in range(len(stock_names)):
+        option_payoffs = pricings[i][0]
+        average_option_payoffs = np.average(option_payoffs)
+        for max_final_price in max_final_prices:
+            if max_final_price >= average_option_payoffs:
+                outperforms_max = False
+                break
+    return outperforms_max
+
+def get_max_final_prices(pricings, stock_names):
+    max_final_prices: List[float] = []
     for i in range(len(stock_names)):
         final_price = max(pricings[i][1])
-        if max_final_price < final_price:
-            max_final_price = final_price
-    return max_final_price
+        max_final_prices.append(final_price)
+    return max_final_prices
 
 def get_average_final_price(pricings, stock_names):
     average_final_price: float = 0
     for i in range(len(stock_names)):
         final_prices = pricings[i][1]
-        average_final_price += final_prices
+        average_final_price += np.sum(final_prices)
     average_final_price /= (NUM_PATHS * len(stock_names))
     return average_final_price
 
