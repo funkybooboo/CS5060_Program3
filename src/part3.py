@@ -56,7 +56,7 @@ def main() -> None:
     print()
 
     simulate_stock_and_plot({"Stock0": {"name": "beta", "lambda":
-        (np.random.beta(BETA_A, BETA_B) - BETA_SHIFT)}})
+        lambda: np.random.beta(BETA_A, BETA_B) - BETA_SHIFT}})
 
     print()
 
@@ -236,6 +236,7 @@ def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> N
 
     plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
 
+    # TODO Bug fix somewhere in here
     average_final_price = get_average_final_price(pricings, stock_names)
 
     max_final_price = get_max_final_price(pricings, stock_names)
