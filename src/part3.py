@@ -2,40 +2,73 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats as ss
 import numpy as np
-from typing import Tuple, List, Dict, Optional, Any
+from typing import Tuple, List, Dict, Optional, Any, Callable
 import warnings
+from numba import njit, prange
 
 # Constants
 FILE_PATHS: List[str] = ['../data/stock1.csv', '../data/stock2.csv']
-STOCK_NAMES: List[str] = ['Stock 1', 'Stock 2']
+STOCK_NAMES: List[str] = ['Stock1', 'Stock2']
 DISTRIBUTIONS: Dict[str, Any] = {
     'norm': ss.norm,
     'lognorm': ss.lognorm,
-    'beta': ss.beta
+    'beta': ss.beta,
 }
 COLORS: Dict[str, str] = {
     'norm': 'red',
     'lognorm': 'blue',
-    'beta': 'green'
+    'beta': 'green',
 }
+GENERATOR: Dict[str, Callable] = {
+    'norm': lambda params: lambda: np.random.normal(params[0], params[1]),
+    'lognorm': lambda params: lambda: np.random.lognormal(params[0], params[1], params[2]),
+    'beta': lambda params: lambda: np.random.beta(params[0], params[1]),
+}
+
+NUM_PATHS: int = 5000
+INITIAL_STOCK_PRICE: float = 100.0
+DRIFT_RATE: float = 0.03
+VOLATILITY_RATE: float = 17.04
+TIME_INCREMENT: float = 1 / 365  # Daily increments
+TOTAL_TIME: float = 1.0  # 1 year
+STRIKE_PRICE: float = 100.0
+RISK_FREE_RATE: float = 0.01
+BETA_A: int = 9
+BETA_B: int = 10
+BETA_SHIFT: float = 0.35
 
 def main() -> None:
     """Main function to execute the distribution fitting and plotting."""
+
     stock_distributions: Dict[str, Dict[str, Any]] = {}
 
+    # Part 1
     for file_path, stock_name in zip(FILE_PATHS, STOCK_NAMES):
         best_fitted_distribution = process_stock(file_path, stock_name)
         if not best_fitted_distribution:
             print(f"{stock_name}: could not get best_fitted_distribution")
             continue  # Process all stocks even if one fails
-        print()
-        print(best_fitted_distribution)
-        print()
         stock_distributions[stock_name] = best_fitted_distribution
 
-    # TODO: Implement Monte Carlo simulation based on the fitted distributions.
+    print(stock_distributions)
 
-def process_stock(file_path: str, stock_name: str) -> Optional[Dict[str, Any]]:
+    # Part 2
+    simulate_stock_and_plot({"Stock0": {'name': "norm", "lambda": lambda: 
+                                np.random.normal(0, np.sqrt(TIME_INCREMENT))}})
+    
+    print()
+
+    simulate_stock_and_plot({"Stock0": {"name:": "beta", "lambda": lambda: 
+                                (np.random.beta(BETA_A, BETA_B) - BETA_SHIFT)}})
+
+    print()
+
+    ## Part 3
+    simulate_stock_and_plot(stock_distributions)
+
+    print()
+
+def process_stock(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
     """
     Process a single stock: load data, normalize, fit distributions, and plot results.
 
@@ -107,7 +140,7 @@ def evaluate_fit_results(non_normalized_data: pd.Series, fits: Dict[str, Dict[st
 
     return {
         'name': non_normalized_best_distribution,
-        'params': fits[non_normalized_best_distribution]['non_normalized']
+        'lambda': GENERATOR[non_normalized_best_distribution](fits[non_normalized_best_distribution]['non_normalized'])
     }
 
 def load_data(file_path: str) -> Optional[pd.Series]:
@@ -187,6 +220,116 @@ def goodness_of_fit(data: pd.Series, fits: Dict[str, Dict[str, Tuple]]) -> Dict[
     for dist, params in fits.items():
         results[dist] = ss.kstest(data, dist, args=params['non_normalized'])
     return results
+
+def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> None:
+
+    simulation_name = ""
+    for i in len(STOCK_NAMES):
+        stock_name: str = STOCK_NAMES[i]
+        distribution_name = stock_distributions[stock_name]["name"]
+        simulation_name += f"{stock_name} {distribution_name}"
+        if i != len(STOCK_NAMES) - 1:
+            simulation_name += "\n"
+    
+    stocks_price_paths: List[np.ndarray]
+    for i in range(len(STOCK_NAMES)):
+        info: Dict[str: Any] = stock_distributions[STOCK_NAMES[i]]
+        stocks_price_paths[i] = generate_stock_price_paths(info['lambda'])
+    
+    pricings: List[ Tuple[ np.ndarray, np.ndarray ] ] = calculate_basket_option_pricing(stocks_price_paths)
+
+    for i in range(len(STOCK_NAMES)):
+        info: Dict[str: Any] = stock_distributions[STOCK_NAMES[i]]
+        # Plotting stock price paths
+        plt.figure(figsize=(12, 6))
+        for i in range(min(NUM_PATHS, 10)):
+            plt.plot(stocks_price_paths[i])
+        plt.xlabel('Days')
+        plt.ylabel('Stock Price')
+        plt.title(f"Simulated Stock Price Paths Using {info['name']} Distribution")
+        plt.show()
+
+    average_final_price: float = 0
+    for i in range(len(STOCK_NAMES)):
+        final_prices = pricings[i][1]
+        average_final_price += final_prices
+    average_final_price /= NUM_PATHS
+    
+    outperforms_average: bool = True
+    basket_option_payoffs: float = 0
+    for i in range(len(STOCK_NAMES)):
+        option_payoffs = pricings[i][0]
+        average_option_payoffs = np.average(option_payoffs)
+        basket_option_payoffs += average_option_payoffs
+        if average_final_price > average_option_payoffs:
+            outperforms_average = False
+            break
+    basket_option_payoffs /= len(STOCK_NAMES)
+    print(f" ---\n {simulation_name} \n--- ")
+
+    max_final_prices: list = []
+    for i in range(len(STOCK_NAMES)):
+        final_prices = pricings[i][1]
+        max_final_prices.append(max(max_final_prices, final_prices))
+    price_to_beat = np.min(max_final_prices)
+    outperforms_max: bool = True
+    for i in range(len(STOCK_NAMES)):
+        option_payoffs = pricings[i][0]
+        if price_to_beat > np.max(option_payoffs):
+            outperforms_max = False
+            break
+
+    print("Scenerio 1")
+    if outperforms_average:
+        print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${average_final_price:.2f}")
+        print(f"Average payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
+        print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
+    else:
+        print("Did not outperform average, no pay off.")
+    print()
+
+    print("Scenario 2:")
+    if outperforms_max:
+        print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${price_to_beat:.2f}")
+        print(f"Max payoff for a block of 100 options: ${np.max(option_payoffs) * 100:.2f}")
+        print(f"Estimated cost of the option: ${np.max(option_payoffs):.2f}")
+    else:
+        print("Did not outperform max, no pay off.")
+    print()
+
+@njit(parallel=True)
+def generate_stock_price_paths(
+        price_change_generator: Callable[[], float]
+) -> np.ndarray:
+    price_paths: np.ndarray = np.zeros((NUM_PATHS, int(TOTAL_TIME / TIME_INCREMENT)))
+    for i in prange(NUM_PATHS):
+        current_price: float = INITIAL_STOCK_PRICE
+        for t in range(int(TOTAL_TIME / TIME_INCREMENT)):
+            price_change: float = DRIFT_RATE * TIME_INCREMENT + VOLATILITY_RATE * price_change_generator()
+            current_price += price_change
+            price_paths[i, t] = current_price
+    return price_paths
+
+@njit
+def calculate_european_call_option_payoff(strike_price: float, final_stock_price: float) -> float:
+    return max(final_stock_price - strike_price, 0)
+
+@njit(parallel=True)
+def calculate_basket_option_pricing(
+    stocks_price_paths: List[np.ndarray]
+) -> List[ Tuple[ np.ndarray, np.ndarray ] ]:
+    pricings = []
+    for i in prange(len(stocks_price_paths)):
+        price_paths = stocks_price_paths[i]
+        option_payoffs: np.ndarray = np.zeros(price_paths.shape[0])
+        final_prices: np.ndarray = np.zeros(price_paths.shape[0])
+
+        for j in prange(price_paths.shape[0]):
+            final_price: float = float(price_paths[j -1])
+            final_prices[j] = final_price
+            option_payoffs[j] = calculate_european_call_option_payoff(STRIKE_PRICE, final_price) / (1 + RISK_FREE_RATE)
+        pricings[i] = (option_payoffs, final_prices)
+    return pricings
 
 if __name__ == '__main__':
     main()
