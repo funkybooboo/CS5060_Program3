@@ -50,12 +50,12 @@ def main() -> None:
         stock_distributions[stock_name] = best_fitted_distribution
 
     # Part 2
-    simulate_stock_and_plot({"Stock0": {'name': "norm", "lambda":
+    simulate_stock_and_plot({"Stock0": {'name': "norm", "generator":
         lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT))}})
 
     print()
 
-    simulate_stock_and_plot({"Stock0": {"name": "beta", "lambda":
+    simulate_stock_and_plot({"Stock0": {"name": "beta", "generator":
         lambda: np.random.beta(BETA_A, BETA_B) - BETA_SHIFT}})
 
     print()
@@ -137,7 +137,7 @@ def evaluate_fit_results(non_normalized_data: pd.Series, fits: Dict[str, Dict[st
 
     return {
         'name': non_normalized_best_distribution,
-        'lambda': GENERATOR[non_normalized_best_distribution](fits[non_normalized_best_distribution]['non_normalized'])
+        'generator': GENERATOR[non_normalized_best_distribution](fits[non_normalized_best_distribution]['non_normalized'])
     }
 
 def load_data(file_path: str) -> Optional[pd.Series]:
@@ -194,9 +194,8 @@ def fit_distributions(normalized_data: pd.Series, non_normalized_data: pd.Series
             try:
                 # Fit to non-normalized data
                 fits[name]['non_normalized'] = distribution.fit(non_normalized_data)
-            except Exception as e:
-                print(f"Fitting {name} distribution to non-normalized data failed: {e}")
-                raise  # Stop execution on exception
+            except Exception:
+                fits[name]['non_normalized'] = distribution.fit(normalized_data)
 
     return fits
 
@@ -228,7 +227,7 @@ def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> N
         distribution_name = stock_distributions[stock_name]["name"]
         simulation_name += f"{stock_name} {distribution_name}\n"
 
-        random_generator: Callable[[], float] = stock_distributions[stock_name]['lambda']
+        random_generator: Callable[[], float] = stock_distributions[stock_name]['generator']
         stock_price_paths: np.ndarray = generate_stock_price_paths(random_generator)
         stocks_price_paths.append(stock_price_paths)
 
@@ -265,7 +264,6 @@ def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> N
         print("Did not outperform max, no payoff.")
     print()
 
-
 def get_basket_option_payoffs(pricings, stock_names):
     basket_option_payoffs: float = 0
     for i in range(len(stock_names)):
@@ -274,7 +272,6 @@ def get_basket_option_payoffs(pricings, stock_names):
         basket_option_payoffs += average_option_payoffs
     basket_option_payoffs /= len(stock_names)
     return basket_option_payoffs
-
 
 def get_outperforms(average_final_price, pricings, stock_names):
     outperforms_average: bool = True
@@ -286,7 +283,6 @@ def get_outperforms(average_final_price, pricings, stock_names):
             break
     return outperforms_average
 
-
 def get_max_final_price(pricings, stock_names):
     max_final_price: float = 0
     for i in range(len(stock_names)):
@@ -295,7 +291,6 @@ def get_max_final_price(pricings, stock_names):
             max_final_price = final_price
     return max_final_price
 
-
 def get_average_final_price(pricings, stock_names):
     average_final_price: float = 0
     for i in range(len(stock_names)):
@@ -303,7 +298,6 @@ def get_average_final_price(pricings, stock_names):
         average_final_price += final_prices
     average_final_price /= (NUM_PATHS * len(stock_names))
     return average_final_price
-
 
 def plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths):
     for i in range(len(stock_names)):
@@ -316,7 +310,6 @@ def plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
         plt.ylabel('Stock Price')
         plt.title(f"Simulated {stock_names[i]} Price Paths Using {distribution_name} Distribution")
         plt.show()
-
 
 def generate_stock_price_paths(
         random_generator: Callable[[], float]
