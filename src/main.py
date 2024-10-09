@@ -246,7 +246,7 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     print_stats(option_pricing_data, simulation_title, stock_names)
 
 def print_stats(option_pricing_data, simulation_title, stock_names):
-    # TODO fix the bellow logic
+    # TODO fix the below logic
     
     # Calculate average final prices from the simulated paths
     avg_final_price: float = calculate_average_final_price(option_pricing_data, stock_names)
