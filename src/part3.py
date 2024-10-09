@@ -41,7 +41,7 @@ RISK_FREE_RATE: float = 0.01  # Risk-free interest rate
 def main() -> None:
     # Dictionary to store fitted distributions for each stock
     stock_fitted_distributions: Dict[str, Dict[str, Any]] = {
-        "simulation_title": "",
+        "simulation_title": "Predicting the feuture with past data",
     }
 
     # Part 1: Fit distributions to stock data
@@ -54,7 +54,7 @@ def main() -> None:
 
     # Part 2: Simulate and plot stocks with defined distributions
     simulate_and_plot_stock({
-        "simulation_title": "",
+        "simulation_title": "Brownian Motion",
         "Stock0": {
             'name': "Normal",
             "generator": lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT)),
@@ -65,7 +65,7 @@ def main() -> None:
     })
 
     simulate_and_plot_stock({
-        "simulation_title": "",
+        "simulation_title": "Weird Beta",
         "Stock0": {
             "name": "Beta",
             "generator": lambda: np.random.beta(9, 10) - 0.35,
@@ -231,6 +231,8 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
 
     # Generate simulated stock price paths
     stocks_price_paths: List[np.ndarray] = generate_stock_price_paths(stock_distributions, stock_names)
+    
+    # TODO average out the stock price paths to get one so we only get one graph
 
     # Calculate basket option pricing data based on simulated paths
     option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
@@ -238,23 +240,23 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     # Plot the simulated stock predictions
     plot_simulated_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
 
+    print_stats(option_pricing_data, simulation_title, stock_names)
+
+def print_stats(option_pricing_data, simulation_title, stock_names):
+    # TODO fix the bellow logic
+    
     # Calculate average final prices from the simulated paths
     avg_final_price: float = calculate_average_final_price(option_pricing_data, stock_names)
-
     # Calculate maximum final prices from the simulated paths
     max_final_prices: List[float] = calculate_max_final_prices(option_pricing_data, stock_names)
-
     # Check if the average stock price outperformed expectations
     average_outperform: bool = check_if_average_outperformed(avg_final_price, option_pricing_data, stock_names)
-
     # Check if the maximum stock price outperformed expectations
     max_outperform: bool = check_if_max_outperformed(max_final_prices, option_pricing_data, stock_names)
-
     # Calculate basket option payoffs based on pricing data
     basket_option_payoffs: float = calculate_basket_option_payoffs(option_pricing_data, stock_names)
-
     # Output the results of the simulation
-    print(f" ---\n {simulation_title} \n--- ")
+    print(f"--- {simulation_title} ---")
     print("Scenario 1")
     if average_outperform:
         print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${avg_final_price:.2f}")
@@ -265,7 +267,8 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     print()
     print("Scenario 2:")
     if max_outperform:
-        print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${np.average(max_final_prices):.2f}")
+        print(
+            f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${np.average(max_final_prices):.2f}")
         print(f"Max payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
         print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
     else:
@@ -356,14 +359,14 @@ def create_stock_price_paths(
         random_generator: Callable[[], float], initial_stock_price: float, drift_rate: float, volatility_rate: float
 ) -> np.ndarray:
     # Create simulated stock price paths using a random generator
-    price_paths: np.ndarray = np.zeros((NUM_SIMULATION_PATHS, int(TOTAL_TIME_YEARS / TIME_INCREMENT)))  # Initialize price paths array
+    stock_price_paths: np.ndarray = np.zeros((NUM_SIMULATION_PATHS, int(TOTAL_TIME_YEARS / TIME_INCREMENT)))  # Initialize price paths array
     for i in range(NUM_SIMULATION_PATHS):
         current_price: float = initial_stock_price  # Start with the initial stock price
         for t in range(int(TOTAL_TIME_YEARS / TIME_INCREMENT)):
             price_change: float = drift_rate * TIME_INCREMENT + volatility_rate * random_generator()  # Calculate price change
             current_price += price_change  # Update current price
-            price_paths[i, t] = current_price  # Store the price
-    return price_paths
+            stock_price_paths[i, t] = current_price  # Store the price
+    return stock_price_paths
 
 def calculate_european_call_option_payoff(strike_price: float, final_stock_price: float) -> float:
     # Calculate the payoff for a European call option
@@ -373,7 +376,7 @@ def calculate_basket_option_pricing(
         stocks_price_paths: List[np.ndarray]
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     # Calculate the basket option pricing based on the simulated stock paths
-    pricing_data: List[Tuple[np.ndarray, np.ndarray]] = []
+    option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = []
     for i in range(len(stocks_price_paths)):
         price_paths: np.ndarray = stocks_price_paths[i]  # Get the price paths for the current stock
         option_payoffs: np.ndarray = np.zeros(price_paths.shape[0])  # Initialize option payoffs array
@@ -383,8 +386,8 @@ def calculate_basket_option_pricing(
             final_price: float = float(price_paths[j, -1])  # Get the final price for the current path
             final_prices[j] = final_price  # Store the final price
             option_payoffs[j] = calculate_european_call_option_payoff(OPTION_STRIKE_PRICE, final_price) / (1 + RISK_FREE_RATE)  # Calculate discounted option payoff
-        pricing_data.append((option_payoffs, final_prices))  # Store payoffs and final prices
-    return pricing_data
+        option_pricing_data.append((option_payoffs, final_prices))  # Store payoffs and final prices
+    return option_pricing_data
 
 if __name__ == '__main__':
     main()  # Run the main function to start the simulation
