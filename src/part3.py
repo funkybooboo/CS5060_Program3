@@ -1,192 +1,347 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import scipy.stats as ss
 import numpy as np
-from numba import njit, prange
-from typing import Tuple, Callable
+from typing import Tuple, List, Dict, Optional, Any, Callable
 
-# Constants for Option Pricing
+# What datasets to predict
+FILE_PATHS: List[str] = ['../data/stock1.csv', '../data/stock2.csv']
+STOCK_NAMES: List[str] = ['Stock1', 'Stock2']
+
+# What distributions to use in the simulation
+DISTRIBUTIONS: Dict[str, Dict[str, Any]] = {
+    'norm': {
+        'name': 'Normal',
+        'distribution_object': ss.norm,
+        'color': 'red',
+        'generator': lambda params: lambda: np.random.normal(params[0], params[1]) - params[0],
+    },
+    'lognorm': {
+        'name': 'Log-Normal',
+        'distribution_object': ss.lognorm,
+        'color': 'blue',
+        'generator': lambda params: lambda: (np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2]),
+    },
+    'beta': {
+        'name': 'Beta',
+        'distribution_object': ss.beta,
+        'color': 'green',
+        'generator': lambda params: lambda: params[2] + (np.random.beta(params[0], params[1])) * params[3],
+    },
+}
+
+# Simulation accuracy
 NUM_PATHS: int = 5000
-INITIAL_STOCK_PRICE: float = 100.0
-DRIFT_RATE: float = 0.03
-VOLATILITY_RATE: float = 17.04
+
+# Option contract info
 TIME_INCREMENT: float = 1 / 365  # Daily increments
 TOTAL_TIME: float = 1.0  # 1 year
 STRIKE_PRICE: float = 100.0
 RISK_FREE_RATE: float = 0.01
-BETA_A: int = 9
-BETA_B: int = 10
-BETA_SHIFT: float = 0.35
 
 def main() -> None:
-    # Run distribution fitting and stock data simulation
-    stock1_data, stock2_data = load_stock_data()
-    fit_distributions(stock1_data, stock2_data)
+    stock_distributions: Dict[str, Dict[str, Any]] = {}
 
-    # Run Monte Carlo simulations for Vanilla European Option Pricing
-    simulate_vanilla_option_pricing()
+    # Part 1
+    for file_path, stock_name in zip(FILE_PATHS, STOCK_NAMES):
+        stock_distribution = get_stock_distribution(file_path, stock_name)
+        if not stock_distribution:
+            print(f"{stock_name}: could not get best_fitted_distribution")
+            continue  # Process all stocks even if one fails
+        stock_distributions[stock_name] = stock_distribution
 
-    # Run the basket option pricing
-    simulate_basket_option_pricing()
+    # Part 2
+    simulate_stock_and_plot({
+        "Stock0": {
+            'name': "Normal",
+            "generator": lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT)),
+            "initial_stock_price": 100.0,
+            'drift_rate': 0.03,
+            'volatility_rate': 17.04
+        }
+    })
+    
+    simulate_stock_and_plot({
+        "Stock0": {
+            "name": "Beta",
+            "generator": lambda: np.random.beta(9, 10) - 0.35,
+            "initial_stock_price": 100.0,
+            'drift_rate': 0.03,
+            'volatility_rate': 17.04
+        }
+    })
 
-def load_stock_data() -> Tuple[np.ndarray, np.ndarray]:
-    """Load stock data from CSV files."""
-    stock1_data = pd.read_csv('data/stock1.csv')['Close'].values
-    stock2_data = pd.read_csv('data/stock2.csv')['Close'].values
-    return stock1_data, stock2_data
+    # Part 3
+    simulate_stock_and_plot(stock_distributions)
 
-def fit_distributions(stock1_data: np.ndarray, stock2_data: np.ndarray) -> None:
-    """Fit distributions to stock data (this is a placeholder for your actual fitting code)."""
-    # Here, implement the logic to fit distributions for stock1 and stock2 and save parameters.
-    print("Fitting distributions...")  # Placeholder
+def get_stock_distribution(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
+    non_normalized_data = load_data(file_path)
 
-def simulate_vanilla_option_pricing() -> None:
-    """Simulate stock price paths and calculate option pricing."""
-    stock_paths = generate_stock_price_paths(normal_price_change_generator)
-    final_prices, option_payoffs = calculate_option_pricing(stock_paths)
+    if non_normalized_data is None or non_normalized_data.empty:
+        return None
 
-    # Plotting stock price paths
-    plt.figure(figsize=(12, 6))
-    for i in range(min(NUM_PATHS, 10)):
-        plt.plot(stock_paths[i])
-    plt.xlabel('Days')
-    plt.ylabel('Stock Price')
-    plt.title(f"Simulated Stock Price Paths Using Normal Distribution")
+    normalized_data = normalize_data(non_normalized_data)
+    number_of_bins = determine_number_of_bins(normalized_data)
+
+    plot_prices(normalized_data, stock_name, number_of_bins)
+
+    fits = fit_distributions(normalized_data, non_normalized_data)
+    plot_fitted_distributions(normalized_data, fits)
     plt.show()
 
-    # Output average results
-    print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${np.average(final_prices):.2f}")
-    print(f"Average payoff for a block of 100 options: ${np.average(option_payoffs) * 100:.2f}")
-    print(f"Estimated cost of the option: ${np.average(option_payoffs):.2f}")
+    return get_best_fitted_stock_distribution(normalized_data, non_normalized_data, fits, stock_name)
 
-@njit
-def normal_price_change_generator() -> float:
-    """Generate price changes using a normal distribution."""
-    random_shock: float = np.random.normal(0, np.sqrt(TIME_INCREMENT))
-    price_change: float = DRIFT_RATE * TIME_INCREMENT + VOLATILITY_RATE * random_shock
-    return price_change
+def get_best_fitted_stock_distribution(normalized_data, non_normalized_data: pd.Series, fits: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
+    non_normalized_ks_results = goodness_of_fit(non_normalized_data, fits)
 
-@njit
-def calculate_european_call_option_payoff(strike_price: float, final_stock_price: float) -> float:
-    """Calculate the payoff for a European call option."""
-    return max(final_stock_price - strike_price, 0)
+    non_normalized_best_fit = max(non_normalized_ks_results.values(), key=lambda x: x.pvalue)
+    non_normalized_best_distribution_name = [dist for dist, result in non_normalized_ks_results.items() if result == non_normalized_best_fit][0]
 
-@njit(parallel=True)
-def generate_stock_price_paths(price_change_generator: Callable[[], float]) -> np.ndarray:
-    """Generate stock price paths using the specified price change generator."""
+    print(f'Stock Name: {stock_name}')
+    for dist, result in non_normalized_ks_results.items():
+        stat = result.statistic
+        p_val = result.pvalue
+        print(f'\t{DISTRIBUTIONS[dist]["name"]} Fit: Statistic={stat:.4f}, p-value={p_val:.4f}')
+
+        if dist != non_normalized_best_distribution_name:
+            diff_stat = stat - non_normalized_best_fit.statistic
+            diff_p_val = p_val - non_normalized_best_fit.pvalue
+            print(f'\t\tDifference from Best Fit: Statistic Diff={diff_stat:.4f}, p-value Diff={diff_p_val:.4f}')
+        else:
+            print('\t\tBest Fit')
+
+    if non_normalized_best_distribution_name == "beta":
+        log_returns = np.log(normalized_data / normalized_data.shift(1)).dropna()
+    else:
+        log_returns = np.log(non_normalized_data / non_normalized_data.shift(1)).dropna()
+
+    drift = log_returns.mean() * 365  # Annualized drift based on all days
+    volatility = log_returns.std() * np.sqrt(365)  # Annualized volatility based on all days
+
+    stock_distribution = {
+        'name': non_normalized_best_distribution_name,
+        'generator': DISTRIBUTIONS[non_normalized_best_distribution_name]['generator'](fits[non_normalized_best_distribution_name]['non_normalized']),
+        'initial_stock_price': non_normalized_data[non_normalized_data.size - 1],
+        'drift_rate': drift,
+        'volatility_rate': volatility,
+    }
+
+    return stock_distribution
+
+def load_data(file_path: str) -> Optional[pd.Series]:
+    try:
+        df: pd.DataFrame = pd.read_csv(file_path)
+        return df['value']
+    except FileNotFoundError:
+        print(f"File {file_path} not found.")
+        return None
+    except KeyError:
+        print(f"'value' column not found in {file_path}.")
+        return None
+
+def normalize_data(data: pd.Series) -> pd.Series:
+    data_min: float = np.min(data)
+    data_max: float = np.max(data)
+    normalized_data = (data - data_min + 1e-9) / (data_max - data_min + 1e-9)
+    normalized_data = normalized_data[(normalized_data != 0) & (normalized_data != 1)]
+    return normalized_data
+
+def determine_number_of_bins(data: pd.Series) -> int:
+    n: int = len(data)
+    if n < 10:
+        return 5  # Minimum number of bins
+    elif n < 50:
+        return int(np.sqrt(n))  # Square root choice
+    else:
+        return int(np.log2(n) + 1)  # Sturges' formula
+
+def plot_prices(normalized_data: pd.Series, stock_name: str, number_of_bins: int) -> None:
+    plt.hist(normalized_data, density=True, bins=number_of_bins, alpha=0.5, color='g')
+    plt.title(f'Histogram of {stock_name}')
+    plt.xlabel('Normalized Price')
+    plt.ylabel('Density')
+
+def fit_distributions(normalized_data: pd.Series, non_normalized_data: pd.Series) -> Dict[str, Dict[str, Tuple]]:
+    fits: Dict[str, Dict[str, Tuple]] = {}
+
+    for name, distribution in DISTRIBUTIONS.items():
+        fits[name] = {}
+
+        try:
+            # Fit to normalized data
+            fits[name]['normalized'] = distribution['distribution_object'].fit(normalized_data)
+        except Exception as e:
+            print(f"Fitting {name} distribution to normalized data failed: {e}")
+            raise  # Stop execution on exception
+
+        try:
+            # Fit to non-normalized data
+            if name == "beta":
+                fits[name]['non_normalized'] = distribution['distribution_object'].fit(normalized_data)
+            else:
+                fits[name]['non_normalized'] = distribution['distribution_object'].fit(non_normalized_data)
+        except Exception as e:
+            print(f"Fitting {name} distribution to non-normalized data failed: {e}")
+            raise  # Stop execution on exception
+
+    return fits
+
+def plot_fitted_distributions(normalized_data: pd.Series, fits: Dict[str, Dict[str, Tuple]]) -> None:
+    x: np.ndarray = np.linspace(min(normalized_data), max(normalized_data), 100)
+
+    # Loop through the fitted distributions and plot them
+    for dist_name, params in fits.items():
+        if dist_name in DISTRIBUTIONS:
+            plt.plot(x, DISTRIBUTIONS[dist_name]['distribution_object'].pdf(x, *params['normalized']), color=DISTRIBUTIONS[dist_name]['color'], label=f'{DISTRIBUTIONS[dist_name]["name"]} Fit (Normalized)')
+
+    plt.legend()
+
+def goodness_of_fit(data: pd.Series, fits: Dict[str, Dict[str, Tuple]]) -> Dict[str, Any]:
+    results: Dict[str, Any] = {}
+    for dist, params in fits.items():
+        results[dist] = ss.kstest(data, dist, args=params['non_normalized'])
+    return results
+
+def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> None:
+    stock_names: List[str] = list(stock_distributions.keys())
+
+    simulation_name, stocks_price_paths = get_stocks_price_paths(stock_distributions, stock_names)
+
+    pricings: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
+
+    plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
+
+    average_final_price = get_average_final_price(pricings, stock_names)
+
+    max_final_prices = get_max_final_prices(pricings, stock_names)
+
+    outperforms_average: bool = get_outperforms_average(average_final_price, pricings, stock_names)
+
+    outperforms_max: bool = get_outperforms_max(max_final_prices, pricings, stock_names)
+
+    basket_option_payoffs = get_basket_option_payoffs(pricings, stock_names)
+
+    print(f" ---\n {simulation_name} \n--- ")
+    print("Scenario 1")
+    if outperforms_average:
+        print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${average_final_price:.2f}")
+        print(f"Average payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
+        print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
+    else:
+        print("Did not outperform average, no payoff.")
+    print()
+    print("Scenario 2:")
+    if outperforms_max:
+        print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME} days: ${np.average(max_final_prices):.2f}")
+        print(f"Max payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
+        print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
+    else:
+        print("Did not outperform max, no payoff.")
+    print()
+
+def get_stocks_price_paths(stock_distributions, stock_names):
+    simulation_name: str = ""
+    stocks_price_paths: List[np.ndarray] = []
+    for i in range(len(stock_names)):
+        stock_name: str = stock_names[i]
+        distribution_name = stock_distributions[stock_name]["name"]
+        simulation_name += f"{stock_name} {distribution_name}\n"
+
+        random_generator: Callable[[], float] = stock_distributions[stock_name]['generator']
+        initial_stock_price = stock_distributions[stock_name]['initial_stock_price']
+        drift_rate = stock_distributions[stock_name]['drift_rate']
+        volatility_rate = stock_distributions[stock_name]['volatility_rate']
+        stock_price_paths: np.ndarray = generate_stock_price_paths(random_generator, initial_stock_price, drift_rate, volatility_rate)
+        stocks_price_paths.append(stock_price_paths)
+    return simulation_name, stocks_price_paths
+
+def get_basket_option_payoffs(pricings, stock_names):
+    basket_option_payoffs: float = 0
+    for i in range(len(stock_names)):
+        option_payoffs = pricings[i][0]
+        average_option_payoffs = np.average(option_payoffs)
+        basket_option_payoffs += average_option_payoffs
+    basket_option_payoffs /= len(stock_names)
+    return basket_option_payoffs
+
+def get_outperforms_average(average_final_price, pricings, stock_names):
+    outperforms_average: bool = True
+    for i in range(len(stock_names)):
+        option_payoffs = pricings[i][0]
+        average_option_payoffs = np.average(option_payoffs)
+        if average_final_price > average_option_payoffs:
+            outperforms_average = False
+            break
+    return outperforms_average
+
+def get_outperforms_max(max_final_prices, pricings, stock_names):
+    outperforms_max: bool = True
+    for i in range(len(stock_names)):
+        option_payoffs = pricings[i][0]
+        average_option_payoffs = np.average(option_payoffs)
+        for max_final_price in max_final_prices:
+            if max_final_price >= average_option_payoffs:
+                outperforms_max = False
+                break
+    return outperforms_max
+
+def get_max_final_prices(pricings, stock_names):
+    max_final_prices: List[float] = []
+    for i in range(len(stock_names)):
+        final_price = max(pricings[i][1])
+        max_final_prices.append(final_price)
+    return max_final_prices
+
+def get_average_final_price(pricings, stock_names):
+    average_final_price: float = 0
+    for i in range(len(stock_names)):
+        final_prices = pricings[i][1]
+        average_final_price += np.sum(final_prices)
+    average_final_price /= (NUM_PATHS * len(stock_names))
+    return average_final_price
+
+def plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths):
+    for i in range(len(stock_names)):
+        distribution_name: str = stock_distributions[stock_names[i]]['name']
+        # Plotting stock price paths
+        plt.figure(figsize=(12, 6))
+        for j in range(min(NUM_PATHS, 10)):
+            plt.plot(stocks_price_paths[i][j])
+        plt.xlabel('Days')
+        plt.ylabel('Stock Price')
+        plt.title(f"Simulated {stock_names[i]} Price Paths Using {distribution_name} Distribution")
+        plt.show()
+
+def generate_stock_price_paths(
+        random_generator, initial_stock_price, drift_rate, volatility_rate
+) -> np.ndarray:
     price_paths: np.ndarray = np.zeros((NUM_PATHS, int(TOTAL_TIME / TIME_INCREMENT)))
-    for i in prange(NUM_PATHS):
-        current_price: float = INITIAL_STOCK_PRICE
+    for i in range(NUM_PATHS):
+        current_price: float = initial_stock_price
         for t in range(int(TOTAL_TIME / TIME_INCREMENT)):
-            price_change: float = price_change_generator()
+            price_change: float = drift_rate * TIME_INCREMENT + volatility_rate * random_generator()
             current_price += price_change
             price_paths[i, t] = current_price
     return price_paths
 
-@njit(parallel=True)
-def calculate_option_pricing(price_paths: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Calculate the final prices and option payoffs from stock price paths."""
-    option_payoffs: np.ndarray = np.zeros(price_paths.shape[0])
-    final_prices: np.ndarray = np.zeros(price_paths.shape[0])
+def calculate_european_call_option_payoff(strike_price: float, final_stock_price: float) -> float:
+    return max(final_stock_price - strike_price, 0)
 
-    for i in prange(price_paths.shape[0]):
-        final_price: float = float(price_paths[i, -1])
-        final_prices[i] = final_price
-        option_payoffs[i] = calculate_european_call_option_payoff(STRIKE_PRICE, final_price) / (1 + RISK_FREE_RATE)
+def calculate_basket_option_pricing(
+        stocks_price_paths: List[np.ndarray]
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    pricings: List[Tuple[np.ndarray, np.ndarray]] = []
+    for i in range(len(stocks_price_paths)):
+        price_paths = stocks_price_paths[i]
+        option_payoffs: np.ndarray = np.zeros(price_paths.shape[0])
+        final_prices: np.ndarray = np.zeros(price_paths.shape[0])
 
-    return final_prices, option_payoffs
+        for j in range(price_paths.shape[0]):
+            final_price: float = float(price_paths[j, -1])
+            final_prices[j] = final_price
+            option_payoffs[j] = calculate_european_call_option_payoff(STRIKE_PRICE, final_price) / (1 + RISK_FREE_RATE)
+        pricings.append((option_payoffs, final_prices))
+    return pricings
 
-def simulate_basket_option_pricing() -> None:
-    """Simulate basket option pricing using two stocks."""
-    stock1_paths, stock2_paths = simulate_stock_paths(stock1_price_change_generator, stock2_price_change_generator)
-
-    # Plot stock price paths
-    plot_stock_paths(stock1_paths, stock2_paths)
-
-    # Calculate option pricing for both scenarios
-    final_prices_avg, option_payoffs_avg = calculate_basket_option(stock1_paths, stock2_paths, average=True)
-    final_prices_max, option_payoffs_max = calculate_basket_option(stock1_paths, stock2_paths, average=False)
-
-    # Output the results for both scenarios
-    print(f"Scenario 1 (Average):")
-    print(f"Average stock price: ${np.average(final_prices_avg):.2f}")
-    print(f"Average payoff for a block of 100 options: ${np.average(option_payoffs_avg) * 100:.2f}")
-    print(f"Estimated cost of the option: ${np.average(option_payoffs_avg):.2f}")
-    print()
-    print(f"Scenario 2 (Maximum):")
-    print(f"Average stock price: ${np.average(final_prices_max):.2f}")
-    print(f"Average payoff for a block of 100 options: ${np.average(option_payoffs_max) * 100:.2f}")
-    print(f"Estimated cost of the option: ${np.average(option_payoffs_max):.2f}")
-
-@njit(parallel=True)
-def simulate_stock_paths(price_change_generator1: Callable[[], float], 
-                         price_change_generator2: Callable[[], float]) -> Tuple[np.ndarray, np.ndarray]:
-    """Simulate price paths for both stock1 and stock2."""
-    stock1_price_paths = np.zeros((NUM_PATHS, int(TOTAL_TIME / TIME_INCREMENT)))
-    stock2_price_paths = np.zeros((NUM_PATHS, int(TOTAL_TIME / TIME_INCREMENT)))
-    
-    for i in prange(NUM_PATHS):
-        current_price1 = INITIAL_STOCK_PRICE
-        current_price2 = INITIAL_STOCK_PRICE
-        
-        for t in range(int(TOTAL_TIME / TIME_INCREMENT)):
-            price_change1 = price_change_generator1()
-            price_change2 = price_change_generator2()
-            
-            current_price1 += price_change1
-            current_price2 += price_change2
-            
-            stock1_price_paths[i, t] = current_price1
-            stock2_price_paths[i, t] = current_price2
-
-    return stock1_price_paths, stock2_price_paths
-
-@njit
-def stock1_price_change_generator() -> float:
-    """Simulate price changes for stock1 using the best-fitting distribution (e.g., Beta)."""
-    random_shock = np.random.beta(BETA_A, BETA_B) - BETA_SHIFT
-    price_change = DRIFT_RATE * TIME_INCREMENT + VOLATILITY_RATE * random_shock
-    return price_change
-
-@njit
-def stock2_price_change_generator() -> float:
-    """Simulate price changes for stock2 using the best-fitting distribution (e.g., Normal)."""
-    random_shock = np.random.normal(0, np.sqrt(TIME_INCREMENT))
-    price_change = DRIFT_RATE * TIME_INCREMENT + VOLATILITY_RATE * random_shock
-    return price_change
-
-@njit(parallel=True)
-def calculate_basket_option(stock1_paths: np.ndarray, stock2_paths: np.ndarray, average: bool) -> Tuple[np.ndarray, np.ndarray]:
-    """Calculate option pricing for both stocks based on average or maximum of stock1 and stock2."""
-    final_prices_1 = stock1_paths[:, -1]
-    final_prices_2 = stock2_paths[:, -1]
-    
-    if average:
-        final_prices = (final_prices_1 + final_prices_2) / 2
-    else:
-        final_prices = np.maximum(final_prices_1, final_prices_2)
-
-    option_payoffs = np.maximum(final_prices - STRIKE_PRICE, 0) / (1 + RISK_FREE_RATE)
-    
-    return final_prices, option_payoffs
-
-def plot_stock_paths(stock1_paths: np.ndarray, stock2_paths: np.ndarray) -> None:
-    """Plot the stock price paths for stock1 and stock2."""
-    plt.figure(figsize=(12, 6))
-    
-    # Plot a few paths for stock1
-    for i in range(min(NUM_PATHS, 5)):  # Limit the number of paths to plot
-        plt.plot(stock1_paths[i], label=f'Stock 1 - Path {i+1}', alpha=0.5)
-    
-    # Plot a few paths for stock2
-    for i in range(min(NUM_PATHS, 5)):  # Limit the number of paths to plot
-        plt.plot(stock2_paths[i], label=f'Stock 2 - Path {i+1}', alpha=0.5, linestyle='dashed')
-    
-    plt.title('Simulated Stock Price Paths for Stock1 and Stock2')
-    plt.xlabel('Days')
-    plt.ylabel('Stock Price')
-    plt.legend()
-    plt.show()
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
-
