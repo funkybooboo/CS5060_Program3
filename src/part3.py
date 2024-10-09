@@ -4,9 +4,11 @@ import scipy.stats as ss
 import numpy as np
 from typing import Tuple, List, Dict, Optional, Any, Callable
 
-# Constants
+# What datasets to predict
 FILE_PATHS: List[str] = ['../data/stock1.csv', '../data/stock2.csv']
 STOCK_NAMES: List[str] = ['Stock1', 'Stock2']
+
+# What distributions to use in the simulation
 DISTRIBUTIONS: Dict[str, Any] = {
     'norm': ss.norm,
     'lognorm': ss.lognorm,
@@ -19,17 +21,22 @@ COLORS: Dict[str, str] = {
 }
 GENERATOR: Dict[str, Callable] = {
     'norm': lambda params: lambda: np.random.normal(params[0], params[1]) - params[0],
-    'lognorm': lambda params: lambda: (np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2]) / 100, # TODO why 100?
+    'lognorm': lambda params: lambda: (np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2]),
     'beta': lambda params: lambda: params[2] + (np.random.beta(params[0], params[1])) * params[3],
 }
 
-#shape, loc, scale = params
-
+# Simulation accuracy
 NUM_PATHS: int = 5000
+
+# Option contract info
 TIME_INCREMENT: float = 1 / 365  # Daily increments
 TOTAL_TIME: float = 1.0  # 1 year
 STRIKE_PRICE: float = 100.0
 RISK_FREE_RATE: float = 0.01
+
+# TODO
+#   1. Combine multiple graphs into one graph for part 3
+#   2. Fix Scenario logic
 
 def main() -> None:
     stock_distributions: Dict[str, Dict[str, Any]] = {}
