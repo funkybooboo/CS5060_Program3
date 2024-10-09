@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import scipy.stats as ss
 import numpy as np
 from typing import Tuple, List, Dict, Optional, Any, Callable
-import warnings
 
 # Constants
 FILE_PATHS: List[str] = ['../data/stock1.csv', '../data/stock2.csv']
@@ -27,39 +26,47 @@ GENERATOR: Dict[str, Callable] = {
 #shape, loc, scale = params
 
 NUM_PATHS: int = 5000
-INITIAL_STOCK_PRICE: float = 100.0
-DRIFT_RATE: float = 0.03
-VOLATILITY_RATE: float = 17.04
 TIME_INCREMENT: float = 1 / 365  # Daily increments
 TOTAL_TIME: float = 1.0  # 1 year
 STRIKE_PRICE: float = 100.0
 RISK_FREE_RATE: float = 0.01
-BETA_A: int = 9
-BETA_B: int = 10
-BETA_SHIFT: float = 0.35
 
 def main() -> None:
     stock_distributions: Dict[str, Dict[str, Any]] = {}
 
     # Part 1
     for file_path, stock_name in zip(FILE_PATHS, STOCK_NAMES):
-        best_fitted_distribution = process_stock(file_path, stock_name)
-        if not best_fitted_distribution:
+        stock_distribution = get_stock_distribution(file_path, stock_name)
+        if not stock_distribution:
             print(f"{stock_name}: could not get best_fitted_distribution")
             continue  # Process all stocks even if one fails
-        stock_distributions[stock_name] = best_fitted_distribution
+        stock_distributions[stock_name] = stock_distribution
 
     # Part 2
-    simulate_stock_and_plot({"Stock0": {'name': "norm", "generator":
-        lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT))}})
+    simulate_stock_and_plot({
+        "Stock0": {
+            'name': "norm", 
+            "generator": lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT)),
+            "initial_stock_price": 100.0,
+            'drift_rate': 0.03,
+            'volatility_rate': 17.04
+        }
+    })
 
-    simulate_stock_and_plot({"Stock0": {"name": "beta", "generator":
-        lambda: np.random.beta(BETA_A, BETA_B) - BETA_SHIFT}})
+    simulate_stock_and_plot({
+            "Stock0": {
+                "name": "beta", 
+                "generator": lambda: np.random.beta(9, 10) - 0.35,
+                "initial_stock_price": 100.0,
+                'drift_rate': 0.03,
+                'volatility_rate': 17.04
+        }
+    })
 
     ## Part 3
     simulate_stock_and_plot(stock_distributions)
 
-def process_stock(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
+def get_stock_distribution(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
     non_normalized_data = load_data(file_path)
 
     if non_normalized_data is None or non_normalized_data.empty:
@@ -74,9 +81,9 @@ def process_stock(file_path: str, stock_name: str) -> Optional[Dict[str, Callabl
     plot_fitted_distributions(normalized_data, fits)
     plt.show()
 
-    return evaluate_fit_results(non_normalized_data, fits, stock_name)
+    return get_best_fitted_stock_distribution(normalized_data, non_normalized_data, fits, stock_name)
 
-def evaluate_fit_results(non_normalized_data: pd.Series, fits: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
+def get_best_fitted_stock_distribution(normalized_data, non_normalized_data: pd.Series, fits: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
     non_normalized_ks_results = goodness_of_fit(non_normalized_data, fits)
 
     non_normalized_best_fit = max(non_normalized_ks_results.values(), key=lambda x: x.pvalue)
@@ -94,11 +101,24 @@ def evaluate_fit_results(non_normalized_data: pd.Series, fits: Dict[str, Dict[st
             print(f'\t\tDifference from Best Fit: Statistic Diff={diff_stat:.4f}, p-value Diff={diff_p_val:.4f}')
         else:
             print('\t\tBest Fit')
-    thing = {
+
+    if non_normalized_best_distribution == "beta":
+        log_returns = np.log(normalized_data / normalized_data.shift(1)).dropna()
+    else:
+        log_returns = np.log(non_normalized_data / non_normalized_data.shift(1)).dropna()
+    
+    drift = log_returns.mean() * 365  # Annualized drift based on all days
+    volatility = log_returns.std() * np.sqrt(365)  # Annualized volatility based on all days
+    
+    stock_distribution = {
         'name': non_normalized_best_distribution,
-        'generator': GENERATOR[non_normalized_best_distribution](fits[non_normalized_best_distribution]['non_normalized'])
+        'generator': GENERATOR[non_normalized_best_distribution](fits[non_normalized_best_distribution]['non_normalized']),
+        'initial_stock_price': non_normalized_data[non_normalized_data.size - 1],
+        'drift_rate': drift,
+        'volatility_rate': volatility,
     }
-    return thing
+    
+    return stock_distribution
 
 def load_data(file_path: str) -> Optional[pd.Series]:
     try:
@@ -220,10 +240,12 @@ def get_stocks_price_paths(stock_distributions, stock_names):
         simulation_name += f"{stock_name} {distribution_name}\n"
 
         random_generator: Callable[[], float] = stock_distributions[stock_name]['generator']
-        stock_price_paths: np.ndarray = generate_stock_price_paths(random_generator)
+        initial_stock_price = stock_distributions[stock_name]['initial_stock_price']
+        drift_rate = stock_distributions[stock_name]['drift_rate']
+        volatility_rate = stock_distributions[stock_name]['volatility_rate']
+        stock_price_paths: np.ndarray = generate_stock_price_paths(random_generator, initial_stock_price, drift_rate, volatility_rate)
         stocks_price_paths.append(stock_price_paths)
     return simulation_name, stocks_price_paths
-
 
 def get_basket_option_payoffs(pricings, stock_names):
     basket_option_payoffs: float = 0
@@ -283,13 +305,13 @@ def plot_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
         plt.show()
 
 def generate_stock_price_paths(
-        random_generator: Callable[[], float]
+        random_generator, initial_stock_price, drift_rate, volatility_rate
 ) -> np.ndarray:
     price_paths: np.ndarray = np.zeros((NUM_PATHS, int(TOTAL_TIME / TIME_INCREMENT)))
     for i in range(NUM_PATHS):
-        current_price: float = INITIAL_STOCK_PRICE
+        current_price: float = initial_stock_price
         for t in range(int(TOTAL_TIME / TIME_INCREMENT)):
-            price_change: float = DRIFT_RATE * TIME_INCREMENT + VOLATILITY_RATE * random_generator()
+            price_change: float = drift_rate * TIME_INCREMENT + volatility_rate * random_generator()
             current_price += price_change
             price_paths[i, t] = current_price
     return price_paths
