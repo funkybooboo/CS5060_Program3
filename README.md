@@ -16,14 +16,16 @@ After this, we used `scipy.stats.kstest` to perform a Kolmogorov-Smirnov test fo
 
 ### Part 2: Monte Carlo Simulation for Vanilla European Option Pricing
 
-For part 2, we simulated future stock prices using a normal distribution and a beta distribution. We did this with the generic function `simulate_stock_and_plot()`, which takes a distribution name and the stock's price path. The price path is generated in a lambda function called `generate_stock_price_paths()`, which calls various price change generators to give it a `price_change` value using the Monte Carlo method. Volatility and drift are applied using the values given to us in the assignment. 
-
+For part 2, we simulated future stock prices using a normal distribution and a beta distribution. We did this with the generic function `simulate_stock_and_plot()`, which takes a distribution name and the stock's price path. The price path is generated in a lambda function called `generate_stock_price_paths()`, which calls various price change generators to give it a `price_change` value using the Monte Carlo method. Volatility and drift are applied using the values given to us in the assignment. To calculate the payoff of the option at maturity, we used `numpy.zeros()` (more elaboration???).
 
 (TODO: explain how we did this section maybe:
 Option Pricing: Calculate the payoff of the option at maturity and discount the payoff to present value using a risk-free rate of your choice.)
 
 TODO: report any insights from the simulations, report the calculated option prices for each distribution.
 
+Normal Distribution: highest density of paths seem to stay at the same rate, but it could climb as high as around 150 or as low as around 70, after around 325 days.
+
+Since the beta distribution will always return a value from 0 to 1, our price paths simulated by the beta distribution only increase in stock price.
 
 ### Part 3: Stochastic Jumps and Basket Option Pricing
 Deliverables: Python code, results of the option prices for both scenarios, and a comparison of the two.
