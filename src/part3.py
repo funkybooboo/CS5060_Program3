@@ -31,7 +31,6 @@ DISTRIBUTIONS: Dict[str, Dict[str, Any]] = {
 }
 
 NUM_SIMULATION_PATHS: int = 5000
-
 TIME_INCREMENT: float = 1 / 365  # Daily increments
 TOTAL_TIME_YEARS: float = 1.0  # 1 year
 OPTION_STRIKE_PRICE: float = 100.0
@@ -94,21 +93,21 @@ def get_fitted_distribution_from_stock_data(file_path: str, stock_name: str) -> 
     return select_best_fitted_distribution(normalized_stock_data, raw_stock_data, fitted_distributions, stock_name)
 
 def select_best_fitted_distribution(normalized_data: pd.Series, raw_data: pd.Series, fitted_distributions: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
-    ks_results: Dict[str, Any] = calculate_goodness_of_fit(raw_data, fitted_distributions)
+    goodness_of_fit_results: Dict[str, Any] = calculate_goodness_of_fit(raw_data, fitted_distributions)
 
-    best_fit_result = max(ks_results.values(), key=lambda x: x.pvalue)
-    best_fit_distribution_name: str = [dist for dist, result in ks_results.items() if result == best_fit_result][0]
+    best_fit_result = max(goodness_of_fit_results.values(), key=lambda x: x.pvalue)
+    best_fit_distribution_name: str = [dist for dist, result in goodness_of_fit_results.items() if result == best_fit_result][0]
 
     print(f'Stock Name: {stock_name}')
-    for dist, result in ks_results.items():
-        stat: float = result.statistic
-        p_val: float = result.pvalue
-        print(f'\t{DISTRIBUTIONS[dist]["name"]} Fit: Statistic={stat:.4f}, p-value={p_val:.4f}')
+    for dist, result in goodness_of_fit_results.items():
+        statistic: float = result.statistic
+        p_value: float = result.pvalue
+        print(f'\t{DISTRIBUTIONS[dist]["name"]} Fit: Statistic={statistic:.4f}, p-value={p_value:.4f}')
 
         if dist != best_fit_distribution_name:
-            diff_stat: float = stat - best_fit_result.statistic
-            diff_p_val: float = p_val - best_fit_result.pvalue
-            print(f'\t\tDifference from Best Fit: Statistic Diff={diff_stat:.4f}, p-value Diff={diff_p_val:.4f}')
+            diff_statistic: float = statistic - best_fit_result.statistic
+            diff_p_value: float = p_value - best_fit_result.pvalue
+            print(f'\t\tDifference from Best Fit: Statistic Diff={diff_statistic:.4f}, p-value Diff={diff_p_value:.4f}')
         else:
             print('\t\tBest Fit')
 
@@ -123,7 +122,7 @@ def select_best_fitted_distribution(normalized_data: pd.Series, raw_data: pd.Ser
     fitted_distribution_info: Dict[str, Any] = {
         'name': best_fit_distribution_name,
         'generator': DISTRIBUTIONS[best_fit_distribution_name]['generator'](fitted_distributions[best_fit_distribution_name]['non_normalized']),
-        'initial_stock_price': raw_data[raw_data.size - 1],
+        'initial_stock_price': raw_data.iloc[-1],
         'drift_rate': drift,
         'volatility_rate': volatility,
     }
@@ -141,15 +140,15 @@ def load_stock_data(file_path: str) -> Optional[pd.Series]:
         print(f"'value' column not found in {file_path}.")
         return None
 
-def normalize_stock_data(data: pd.Series) -> pd.Series:
-    data_min: float = np.min(data)
-    data_max: float = np.max(data)
-    normalized_data: pd.Series = (data - data_min + 1e-9) / (data_max - data_min + 1e-9)
+def normalize_stock_data(raw_data: pd.Series) -> pd.Series:
+    data_min: float = np.min(raw_data)
+    data_max: float = np.max(raw_data)
+    normalized_data: pd.Series = (raw_data - data_min + 1e-9) / (data_max - data_min + 1e-9)
     normalized_data = normalized_data[(normalized_data != 0) & (normalized_data != 1)]
     return normalized_data
 
-def calculate_number_of_bins(data: pd.Series) -> int:
-    n: int = len(data)
+def calculate_number_of_bins(normalized_data: pd.Series) -> int:
+    n: int = len(normalized_data)
     if n < 10:
         return 5  # Minimum number of bins
     elif n < 50:
@@ -166,24 +165,24 @@ def plot_stock_prices(normalized_data: pd.Series, stock_name: str, num_bins: int
 def fit_distribution_models(normalized_data: pd.Series, raw_data: pd.Series) -> Dict[str, Dict[str, Tuple]]:
     fitted_models: Dict[str, Dict[str, Tuple]] = {}
 
-    for name, distribution in DISTRIBUTIONS.items():
-        fitted_models[name] = {}
+    for distribution_name, distribution in DISTRIBUTIONS.items():
+        fitted_models[distribution_name] = {}
 
         try:
             # Fit to normalized data
-            fitted_models[name]['normalized'] = distribution['distribution_object'].fit(normalized_data)
+            fitted_models[distribution_name]['normalized'] = distribution['distribution_object'].fit(normalized_data)
         except Exception as e:
-            print(f"Fitting {name} distribution to normalized data failed: {e}")
+            print(f"Fitting {distribution_name} distribution to normalized data failed: {e}")
             raise  # Stop execution on exception
 
         try:
             # Fit to raw data
-            if name == "beta":
-                fitted_models[name]['non_normalized'] = distribution['distribution_object'].fit(normalized_data)
+            if distribution_name == "beta":
+                fitted_models[distribution_name]['non_normalized'] = distribution['distribution_object'].fit(normalized_data)
             else:
-                fitted_models[name]['non_normalized'] = distribution['distribution_object'].fit(raw_data)
+                fitted_models[distribution_name]['non_normalized'] = distribution['distribution_object'].fit(raw_data)
         except Exception as e:
-            print(f"Fitting {name} distribution to raw data failed: {e}")
+            print(f"Fitting {distribution_name} distribution to raw data failed: {e}")
             raise  # Stop execution on exception
 
     return fitted_models
@@ -192,22 +191,23 @@ def plot_fitted_distribution_models(normalized_data: pd.Series, fitted_models: D
     x: np.ndarray = np.linspace(min(normalized_data), max(normalized_data), 100)
 
     # Loop through the fitted distributions and plot them
-    for dist_name, params in fitted_models.items():
-        if dist_name in DISTRIBUTIONS:
-            plt.plot(x, DISTRIBUTIONS[dist_name]['distribution_object'].pdf(x, *params['normalized']), color=DISTRIBUTIONS[dist_name]['color'], label=f'{DISTRIBUTIONS[dist_name]["name"]} Fit (Normalized)')
+    for distribution_name, params in fitted_models.items():
+        if distribution_name in DISTRIBUTIONS:
+            plt.plot(x, DISTRIBUTIONS[distribution_name]['distribution_object'].pdf(x, *params['normalized']),
+                     color=DISTRIBUTIONS[distribution_name]['color'], label=f'{DISTRIBUTIONS[distribution_name]["name"]} Fit (Normalized)')
 
     plt.legend()
 
-def calculate_goodness_of_fit(data: pd.Series, fitted_models: Dict[str, Dict[str, Tuple]]) -> Dict[str, Any]:
+def calculate_goodness_of_fit(raw_data: pd.Series, fitted_models: Dict[str, Dict[str, Tuple]]) -> Dict[str, Any]:
     goodness_of_fit_results: Dict[str, Any] = {}
-    for dist, params in fitted_models.items():
-        goodness_of_fit_results[dist] = ss.kstest(data, dist, args=params['non_normalized'])
+    for distribution_name, params in fitted_models.items():
+        goodness_of_fit_results[distribution_name] = ss.kstest(raw_data, distribution_name, args=params['non_normalized'])
     return goodness_of_fit_results
 
 def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]) -> None:
     simulation_title: str = stock_distributions['simulation_title']
     stock_names: List[str] = [name for name in stock_distributions.keys() if name != 'simulation_title']
-    
+
     stocks_price_paths: List[np.ndarray] = generate_stock_price_paths(stock_distributions, stock_names)
 
     option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
