@@ -4,6 +4,8 @@ import scipy.stats as ss
 import numpy as np
 from typing import Tuple, List, Dict, Optional, Any, Callable
 
+from scipy.linalg import solve_toeplitz
+
 FILE_PATHS: List[str] = ['../data/stock1.csv', '../data/stock2.csv']
 STOCK_NAMES: List[str] = ['Stock1', 'Stock2']
 
@@ -36,7 +38,9 @@ OPTION_STRIKE_PRICE: float = 100.0
 RISK_FREE_RATE: float = 0.01
 
 def main() -> None:
-    stock_fitted_distributions: Dict[str, Dict[str, Any]] = {}
+    stock_fitted_distributions: Dict[str, Dict[str, Any]] = {
+        "simulation_title": "",
+    }
 
     # Part 1
     for file_path, stock_name in zip(FILE_PATHS, STOCK_NAMES):
@@ -48,6 +52,7 @@ def main() -> None:
 
     # Part 2
     simulate_and_plot_stock({
+        "simulation_title": "",
         "Stock0": {
             'name': "Normal",
             "generator": lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT)),
@@ -58,6 +63,7 @@ def main() -> None:
     })
 
     simulate_and_plot_stock({
+        "simulation_title": "",
         "Stock0": {
             "name": "Beta",
             "generator": lambda: np.random.beta(9, 10) - 0.35,
@@ -71,50 +77,50 @@ def main() -> None:
     simulate_and_plot_stock(stock_fitted_distributions)
 
 def get_fitted_distribution_from_stock_data(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
-    raw_stock_data = load_stock_data(file_path)
+    raw_stock_data: Optional[pd.Series] = load_stock_data(file_path)
 
     if raw_stock_data is None or raw_stock_data.empty:
         return None
 
-    normalized_stock_data = normalize_stock_data(raw_stock_data)
-    num_bins = calculate_number_of_bins(normalized_stock_data)
+    normalized_stock_data: pd.Series = normalize_stock_data(raw_stock_data)
+    num_bins: int = calculate_number_of_bins(normalized_stock_data)
 
     plot_stock_prices(normalized_stock_data, stock_name, num_bins)
 
-    fitted_distributions = fit_distribution_models(normalized_stock_data, raw_stock_data)
+    fitted_distributions: Dict[str, Dict[str, Tuple]] = fit_distribution_models(normalized_stock_data, raw_stock_data)
     plot_fitted_distribution_models(normalized_stock_data, fitted_distributions)
     plt.show()
 
     return select_best_fitted_distribution(normalized_stock_data, raw_stock_data, fitted_distributions, stock_name)
 
-def select_best_fitted_distribution(normalized_data, raw_data: pd.Series, fitted_distributions: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
-    ks_results = calculate_goodness_of_fit(raw_data, fitted_distributions)
+def select_best_fitted_distribution(normalized_data: pd.Series, raw_data: pd.Series, fitted_distributions: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
+    ks_results: Dict[str, Any] = calculate_goodness_of_fit(raw_data, fitted_distributions)
 
     best_fit_result = max(ks_results.values(), key=lambda x: x.pvalue)
-    best_fit_distribution_name = [dist for dist, result in ks_results.items() if result == best_fit_result][0]
+    best_fit_distribution_name: str = [dist for dist, result in ks_results.items() if result == best_fit_result][0]
 
     print(f'Stock Name: {stock_name}')
     for dist, result in ks_results.items():
-        stat = result.statistic
-        p_val = result.pvalue
+        stat: float = result.statistic
+        p_val: float = result.pvalue
         print(f'\t{DISTRIBUTIONS[dist]["name"]} Fit: Statistic={stat:.4f}, p-value={p_val:.4f}')
 
         if dist != best_fit_distribution_name:
-            diff_stat = stat - best_fit_result.statistic
-            diff_p_val = p_val - best_fit_result.pvalue
+            diff_stat: float = stat - best_fit_result.statistic
+            diff_p_val: float = p_val - best_fit_result.pvalue
             print(f'\t\tDifference from Best Fit: Statistic Diff={diff_stat:.4f}, p-value Diff={diff_p_val:.4f}')
         else:
             print('\t\tBest Fit')
 
     if best_fit_distribution_name == "beta":
-        log_returns = np.log(normalized_data / normalized_data.shift(1)).dropna()
+        log_returns: pd.Series = np.log(normalized_data / normalized_data.shift(1)).dropna()
     else:
-        log_returns = np.log(raw_data / raw_data.shift(1)).dropna()
+        log_returns: pd.Series = np.log(raw_data / raw_data.shift(1)).dropna()
 
-    drift = log_returns.mean() * 365  # Annualized drift based on all days
-    volatility = log_returns.std() * np.sqrt(365)  # Annualized volatility based on all days
+    drift: float = log_returns.mean() * 365  # Annualized drift based on all days
+    volatility: float = log_returns.std() * np.sqrt(365)  # Annualized volatility based on all days
 
-    fitted_distribution_info = {
+    fitted_distribution_info: Dict[str, Any] = {
         'name': best_fit_distribution_name,
         'generator': DISTRIBUTIONS[best_fit_distribution_name]['generator'](fitted_distributions[best_fit_distribution_name]['non_normalized']),
         'initial_stock_price': raw_data[raw_data.size - 1],
@@ -138,7 +144,7 @@ def load_stock_data(file_path: str) -> Optional[pd.Series]:
 def normalize_stock_data(data: pd.Series) -> pd.Series:
     data_min: float = np.min(data)
     data_max: float = np.max(data)
-    normalized_data = (data - data_min + 1e-9) / (data_max - data_min + 1e-9)
+    normalized_data: pd.Series = (data - data_min + 1e-9) / (data_max - data_min + 1e-9)
     normalized_data = normalized_data[(normalized_data != 0) & (normalized_data != 1)]
     return normalized_data
 
@@ -198,26 +204,27 @@ def calculate_goodness_of_fit(data: pd.Series, fitted_models: Dict[str, Dict[str
         goodness_of_fit_results[dist] = ss.kstest(data, dist, args=params['non_normalized'])
     return goodness_of_fit_results
 
-def simulate_and_plot_stock(stock_distributions: Dict[str, Dict[str, Any]]) -> None:
-    stock_names: List[str] = list(stock_distributions.keys())
-
-    simulation_description, stocks_price_paths = generate_stock_price_paths(stock_distributions, stock_names)
+def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]) -> None:
+    simulation_title: str = stock_distributions['simulation_title']
+    stock_names: List[str] = [name for name in stock_distributions.keys() if name != 'simulation_title']
+    
+    stocks_price_paths: List[np.ndarray] = generate_stock_price_paths(stock_distributions, stock_names)
 
     option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
 
     plot_simulated_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
 
-    avg_final_price = calculate_average_final_price(option_pricing_data, stock_names)
+    avg_final_price: float = calculate_average_final_price(option_pricing_data, stock_names)
 
-    max_final_prices = calculate_max_final_prices(option_pricing_data, stock_names)
+    max_final_prices: List[float] = calculate_max_final_prices(option_pricing_data, stock_names)
 
     average_outperform: bool = check_if_average_outperformed(avg_final_price, option_pricing_data, stock_names)
 
     max_outperform: bool = check_if_max_outperformed(max_final_prices, option_pricing_data, stock_names)
 
-    basket_option_payoffs = calculate_basket_option_payoffs(option_pricing_data, stock_names)
+    basket_option_payoffs: float = calculate_basket_option_payoffs(option_pricing_data, stock_names)
 
-    print(f" ---\n {simulation_description} \n--- ")
+    print(f" ---\n {simulation_title} \n--- ")
     print("Scenario 1")
     if average_outperform:
         print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${avg_final_price:.2f}")
@@ -235,68 +242,64 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, Dict[str, Any]]) -> N
         print("Did not outperform max, no payoff.")
     print()
 
-def generate_stock_price_paths(stock_distributions, stock_names):
-    simulation_description: str = ""
+def generate_stock_price_paths(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str]) -> List[np.ndarray]:
     stocks_price_paths: List[np.ndarray] = []
     for i in range(len(stock_names)):
         stock_name: str = stock_names[i]
-        distribution_name = stock_distributions[stock_name]["name"]
-        simulation_description += f"{stock_name} {distribution_name}\n"
-
         random_generator: Callable[[], float] = stock_distributions[stock_name]['generator']
-        initial_stock_price = stock_distributions[stock_name]['initial_stock_price']
-        drift_rate = stock_distributions[stock_name]['drift_rate']
-        volatility_rate = stock_distributions[stock_name]['volatility_rate']
+        initial_stock_price: float = stock_distributions[stock_name]['initial_stock_price']
+        drift_rate: float = stock_distributions[stock_name]['drift_rate']
+        volatility_rate: float = stock_distributions[stock_name]['volatility_rate']
         stock_price_paths: np.ndarray = create_stock_price_paths(random_generator, initial_stock_price, drift_rate, volatility_rate)
         stocks_price_paths.append(stock_price_paths)
-    return simulation_description, stocks_price_paths
+    return stocks_price_paths
 
-def calculate_basket_option_payoffs(option_pricing_data, stock_names):
+def calculate_basket_option_payoffs(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> float:
     total_basket_option_payoffs: float = 0
     for i in range(len(stock_names)):
-        option_payoffs = option_pricing_data[i][0]
-        avg_option_payoffs = np.average(option_payoffs)
+        option_payoffs: np.ndarray = option_pricing_data[i][0]
+        avg_option_payoffs: float = float(np.average(option_payoffs))
         total_basket_option_payoffs += avg_option_payoffs
     total_basket_option_payoffs /= len(stock_names)
     return total_basket_option_payoffs
 
-def check_if_average_outperformed(avg_final_price, option_pricing_data, stock_names):
+def check_if_average_outperformed(avg_final_price: float, option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> bool:
     average_outperform: bool = True
     for i in range(len(stock_names)):
-        option_payoffs = option_pricing_data[i][0]
-        avg_option_payoffs = np.average(option_payoffs)
+        option_payoffs: np.ndarray = option_pricing_data[i][0]
+        avg_option_payoffs: float = float(np.average(option_payoffs))
         if avg_final_price > avg_option_payoffs:
             average_outperform = False
             break
     return average_outperform
 
-def check_if_max_outperformed(max_final_prices, option_pricing_data, stock_names):
+def check_if_max_outperformed(max_final_prices: List[float], option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> bool:
     max_outperform: bool = True
     for i in range(len(stock_names)):
-        option_payoffs = option_pricing_data[i][0]
-        avg_option_payoffs = np.average(option_payoffs)
+        option_payoffs: np.ndarray = option_pricing_data[i][0]
+        avg_option_payoffs: float = float(np.average(option_payoffs))
         for max_final_price in max_final_prices:
             if max_final_price >= avg_option_payoffs:
                 max_outperform = False
                 break
     return max_outperform
 
-def calculate_max_final_prices(option_pricing_data, stock_names):
+def calculate_max_final_prices(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> List[float]:
     max_final_prices: List[float] = []
     for i in range(len(stock_names)):
-        final_price = max(option_pricing_data[i][1])
+        final_price: float = max(option_pricing_data[i][1])
         max_final_prices.append(final_price)
     return max_final_prices
 
-def calculate_average_final_price(option_pricing_data, stock_names):
+def calculate_average_final_price(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> float:
     total_avg_final_price: float = 0
     for i in range(len(stock_names)):
-        final_prices = option_pricing_data[i][1]
+        final_prices: np.ndarray = option_pricing_data[i][1]
         total_avg_final_price += np.sum(final_prices)
     total_avg_final_price /= (NUM_SIMULATION_PATHS * len(stock_names))
     return total_avg_final_price
 
-def plot_simulated_stock_predictions(stock_distributions, stock_names, stocks_price_paths):
+def plot_simulated_stock_predictions(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str], stocks_price_paths: List[np.ndarray]) -> None:
     for i in range(len(stock_names)):
         distribution_name: str = stock_distributions[stock_names[i]]['name']
         # Plotting stock price paths
@@ -309,7 +312,7 @@ def plot_simulated_stock_predictions(stock_distributions, stock_names, stocks_pr
         plt.show()
 
 def create_stock_price_paths(
-        random_generator, initial_stock_price, drift_rate, volatility_rate
+        random_generator: Callable[[], float], initial_stock_price: float, drift_rate: float, volatility_rate: float
 ) -> np.ndarray:
     price_paths: np.ndarray = np.zeros((NUM_SIMULATION_PATHS, int(TOTAL_TIME_YEARS / TIME_INCREMENT)))
     for i in range(NUM_SIMULATION_PATHS):
@@ -328,7 +331,7 @@ def calculate_basket_option_pricing(
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     pricing_data: List[Tuple[np.ndarray, np.ndarray]] = []
     for i in range(len(stocks_price_paths)):
-        price_paths = stocks_price_paths[i]
+        price_paths: np.ndarray = stocks_price_paths[i]
         option_payoffs: np.ndarray = np.zeros(price_paths.shape[0])
         final_prices: np.ndarray = np.zeros(price_paths.shape[0])
 
