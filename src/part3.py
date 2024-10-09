@@ -20,7 +20,7 @@ COLORS: Dict[str, str] = {
 }
 GENERATOR: Dict[str, Callable] = {
     'norm': lambda params: lambda: np.random.normal(params[0], params[1]) - params[0],
-    'lognorm': lambda params: lambda: np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2],
+    'lognorm': lambda params: lambda: (np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2]) / 100, # TODO why 100?
     'beta': lambda params: lambda: params[2] + (np.random.beta(params[0], params[1])) * params[3],
 }
 
