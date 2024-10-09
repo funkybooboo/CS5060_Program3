@@ -9,20 +9,25 @@ FILE_PATHS: List[str] = ['../data/stock1.csv', '../data/stock2.csv']
 STOCK_NAMES: List[str] = ['Stock1', 'Stock2']
 
 # What distributions to use in the simulation
-DISTRIBUTIONS: Dict[str, Any] = {
-    'norm': ss.norm,
-    'lognorm': ss.lognorm,
-    'beta': ss.beta,
-}
-COLORS: Dict[str, str] = {
-    'norm': 'red',
-    'lognorm': 'blue',
-    'beta': 'green',
-}
-GENERATOR: Dict[str, Callable] = {
-    'norm': lambda params: lambda: np.random.normal(params[0], params[1]) - params[0],
-    'lognorm': lambda params: lambda: (np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2]),
-    'beta': lambda params: lambda: params[2] + (np.random.beta(params[0], params[1])) * params[3],
+DISTRIBUTIONS: Dict[str, Dict[str, Any]] = {
+    'norm': {
+        'name': 'Normal',
+        'distribution_object': ss.norm,
+        'color': 'red',
+        'generator': lambda params: lambda: np.random.normal(params[0], params[1]) - params[0],
+    },
+    'lognorm': {
+        'name': 'Log-Normal',
+        'distribution_object': ss.lognorm,
+        'color': 'blue',
+        'generator': lambda params: lambda: (np.random.lognormal(mean=np.log(params[2]), sigma=params[0]) - params[2]),
+    },
+    'beta': {
+        'name': 'Beta',
+        'distribution_object': ss.beta,
+        'color': 'green',
+        'generator': lambda params: lambda: params[2] + (np.random.beta(params[0], params[1])) * params[3],
+    },
 }
 
 # Simulation accuracy
@@ -33,10 +38,6 @@ TIME_INCREMENT: float = 1 / 365  # Daily increments
 TOTAL_TIME: float = 1.0  # 1 year
 STRIKE_PRICE: float = 100.0
 RISK_FREE_RATE: float = 0.01
-
-# TODO
-#   1. Combine multiple graphs into one graph for part 3
-#   2. Fix Scenario logic
 
 def main() -> None:
     stock_distributions: Dict[str, Dict[str, Any]] = {}
@@ -52,25 +53,25 @@ def main() -> None:
     # Part 2
     simulate_stock_and_plot({
         "Stock0": {
-            'name': "norm", 
+            'name': "Normal",
             "generator": lambda: np.random.normal(0, np.sqrt(TIME_INCREMENT)),
             "initial_stock_price": 100.0,
             'drift_rate': 0.03,
             'volatility_rate': 17.04
         }
     })
-
+    
     simulate_stock_and_plot({
-            "Stock0": {
-                "name": "beta", 
-                "generator": lambda: np.random.beta(9, 10) - 0.35,
-                "initial_stock_price": 100.0,
-                'drift_rate': 0.03,
-                'volatility_rate': 17.04
+        "Stock0": {
+            "name": "Beta",
+            "generator": lambda: np.random.beta(9, 10) - 0.35,
+            "initial_stock_price": 100.0,
+            'drift_rate': 0.03,
+            'volatility_rate': 17.04
         }
     })
 
-    ## Part 3
+    # Part 3
     simulate_stock_and_plot(stock_distributions)
 
 def get_stock_distribution(file_path: str, stock_name: str) -> Optional[Dict[str, Callable]]:
@@ -94,37 +95,37 @@ def get_best_fitted_stock_distribution(normalized_data, non_normalized_data: pd.
     non_normalized_ks_results = goodness_of_fit(non_normalized_data, fits)
 
     non_normalized_best_fit = max(non_normalized_ks_results.values(), key=lambda x: x.pvalue)
-    non_normalized_best_distribution = [dist for dist, result in non_normalized_ks_results.items() if result == non_normalized_best_fit][0]
+    non_normalized_best_distribution_name = [dist for dist, result in non_normalized_ks_results.items() if result == non_normalized_best_fit][0]
 
     print(f'Stock Name: {stock_name}')
     for dist, result in non_normalized_ks_results.items():
         stat = result.statistic
         p_val = result.pvalue
-        print(f'\t{dist.capitalize()} Fit: Statistic={stat:.4f}, p-value={p_val:.4f}')
+        print(f'\t{DISTRIBUTIONS[dist]["name"]} Fit: Statistic={stat:.4f}, p-value={p_val:.4f}')
 
-        if dist != non_normalized_best_distribution:
+        if dist != non_normalized_best_distribution_name:
             diff_stat = stat - non_normalized_best_fit.statistic
             diff_p_val = p_val - non_normalized_best_fit.pvalue
             print(f'\t\tDifference from Best Fit: Statistic Diff={diff_stat:.4f}, p-value Diff={diff_p_val:.4f}')
         else:
             print('\t\tBest Fit')
 
-    if non_normalized_best_distribution == "beta":
+    if non_normalized_best_distribution_name == "beta":
         log_returns = np.log(normalized_data / normalized_data.shift(1)).dropna()
     else:
         log_returns = np.log(non_normalized_data / non_normalized_data.shift(1)).dropna()
-    
+
     drift = log_returns.mean() * 365  # Annualized drift based on all days
     volatility = log_returns.std() * np.sqrt(365)  # Annualized volatility based on all days
-    
+
     stock_distribution = {
-        'name': non_normalized_best_distribution,
-        'generator': GENERATOR[non_normalized_best_distribution](fits[non_normalized_best_distribution]['non_normalized']),
+        'name': non_normalized_best_distribution_name,
+        'generator': DISTRIBUTIONS[non_normalized_best_distribution_name]['generator'](fits[non_normalized_best_distribution_name]['non_normalized']),
         'initial_stock_price': non_normalized_data[non_normalized_data.size - 1],
         'drift_rate': drift,
         'volatility_rate': volatility,
     }
-    
+
     return stock_distribution
 
 def load_data(file_path: str) -> Optional[pd.Series]:
@@ -168,7 +169,7 @@ def fit_distributions(normalized_data: pd.Series, non_normalized_data: pd.Series
 
         try:
             # Fit to normalized data
-            fits[name]['normalized'] = distribution.fit(normalized_data)
+            fits[name]['normalized'] = distribution['distribution_object'].fit(normalized_data)
         except Exception as e:
             print(f"Fitting {name} distribution to normalized data failed: {e}")
             raise  # Stop execution on exception
@@ -176,9 +177,9 @@ def fit_distributions(normalized_data: pd.Series, non_normalized_data: pd.Series
         try:
             # Fit to non-normalized data
             if name == "beta":
-                fits[name]['non_normalized'] = distribution.fit(normalized_data)
+                fits[name]['non_normalized'] = distribution['distribution_object'].fit(normalized_data)
             else:
-                fits[name]['non_normalized'] = distribution.fit(non_normalized_data)
+                fits[name]['non_normalized'] = distribution['distribution_object'].fit(non_normalized_data)
         except Exception as e:
             print(f"Fitting {name} distribution to non-normalized data failed: {e}")
             raise  # Stop execution on exception
@@ -190,8 +191,8 @@ def plot_fitted_distributions(normalized_data: pd.Series, fits: Dict[str, Dict[s
 
     # Loop through the fitted distributions and plot them
     for dist_name, params in fits.items():
-        if dist_name in COLORS:
-            plt.plot(x, DISTRIBUTIONS[dist_name].pdf(x, *params['normalized']), color=COLORS[dist_name], label=f'{dist_name.capitalize()} Fit (Normalized)')
+        if dist_name in DISTRIBUTIONS:
+            plt.plot(x, DISTRIBUTIONS[dist_name]['distribution_object'].pdf(x, *params['normalized']), color=DISTRIBUTIONS[dist_name]['color'], label=f'{DISTRIBUTIONS[dist_name]["name"]} Fit (Normalized)')
 
     plt.legend()
 
@@ -216,7 +217,7 @@ def simulate_stock_and_plot(stock_distributions: Dict[str, Dict[str, Any]]) -> N
 
     outperforms_average: bool = get_outperforms_average(average_final_price, pricings, stock_names)
 
-    outperforms_max: bool = get_outperforms_max(max_final_prices, pricings, stock_names) 
+    outperforms_max: bool = get_outperforms_max(max_final_prices, pricings, stock_names)
 
     basket_option_payoffs = get_basket_option_payoffs(pricings, stock_names)
 
