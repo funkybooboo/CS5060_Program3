@@ -38,6 +38,8 @@ TOTAL_TIME_YEARS: float = 1.0  # Total duration of simulation in years
 OPTION_STRIKE_PRICE: float = 100.0  # Strike price for the option
 RISK_FREE_RATE: float = 0.01  # Risk-free interest rate
 
+# TODO move related functions into namespaces for flow clarity
+
 def main() -> None:
     # Dictionary to store fitted distributions for each stock
     stock_fitted_distributions: Dict[str, Dict[str, Any]] = {
