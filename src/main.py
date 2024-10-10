@@ -38,9 +38,6 @@ TOTAL_TIME_YEARS: float = 1.0  # Total duration of simulation in years
 OPTION_STRIKE_PRICE: float = 100.0  # Strike price for the option
 RISK_FREE_RATE: float = 0.01  # Risk-free interest rate
 
-# TODO move related functions into namespaces for flow clarity
-# TODO add numba
-
 def main() -> None:
     # Dictionary to store fitted distributions for each stock
     stock_fitted_distributions: Dict[str, str | Dict[str, Any]] = {
@@ -230,51 +227,81 @@ def calculate_goodness_of_fit(raw_data: pd.Series, fitted_models: Dict[str, Dict
 def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]) -> None:
     # Simulate stock price paths and plot results
     simulation_title: str = stock_distributions['simulation_title']
+    print(f"--- {simulation_title} ---")
     stock_names: List[str] = [name for name in stock_distributions.keys() if name != 'simulation_title']
 
     # Generate simulated stock price paths
     stocks_price_paths: List[np.ndarray] = generate_stocks_price_paths(stock_distributions, stock_names)
     
-    # TODO average out the stock price paths to get one so we only get one graph
-
-    # Calculate basket option pricing data based on simulated paths
-    option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
-
-    # Plot the simulated stock predictions
-    plot_simulated_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
-
-    print_stats(option_pricing_data, simulation_title, stock_names)
+    lines = get_lines(stocks_price_paths)
+    points = get_points(lines)
+    plot(lines, points)
+    average_basket_option_payoff = get_average_basket_option_payoff(points[0])
+    max_basket_option_payoff = get_max_basket_option_payoff(points[1])
+    print(f"average_basket_option_payoff: {average_basket_option_payoff}")
+    print(f"max_basket_option_payoff: {max_basket_option_payoff}")
     
-def average_stocks_price_paths(stocks_price_paths: List[np.ndarray]) -> List[np.ndarray]:
-    pass
+def get_lines(stocks_price_paths):
+    average_line = [0.0 for _ in range(365)]
+    max_line = [-100000.0 for _ in range(365)]
+    for stock in stocks_price_paths:
+        for i in range(365):
+            day = stock[i]
+            price = np.sum(day) / 365
+            average_line[i] += price
+            max_line[i] = max(max_line[i], price)
+    return average_line, max_line
 
-def print_stats(option_pricing_data, simulation_title, stock_names):
-    # TODO fix the below logic
+def get_points(lines):
+    average_point = 0
+    max_point = -10000000
+    for line in lines:
+        average_point += line[-1] / len(lines)
+        max_point = max(max_point, line[-1])
+    return average_point, max_point
+
+def plot(lines, points):
+    # Create an array for the days of the year
+    days = [i + 1 for i in range(365)]
+
+    # Plot the stock prices
+    for i in range(len(lines)):
+        line = lines[i]
+        if i == 0:
+            t = 'Average Stock Price'
+        else:
+            t = 'Max Stock Price'
+        plt.plot(days, line, label=t)
+
+    # Unpack average and max prices from points
+    avg_price, max_price = points
+
+    # Plot average and max prices
+    plt.axhline(y=avg_price, color='orange', linestyle='--', label='Average Price')
+    plt.axhline(y=max_price, color='red', linestyle='--', label='Max Price')
+
+    # Plot strike price
+    plt.axhline(y=OPTION_STRIKE_PRICE, color='green', linestyle='-', label='Strike Price')
+
+    # Add titles and labels
+    plt.title('Stock Prices Over a Year')
+    plt.xlabel('Days of the Year')
+    plt.ylabel('Stock Price')
+    plt.legend()
+    plt.grid(True)
+
+    # Show the plot
+    plt.show()
+
+def get_average_basket_option_payoff(average_point):
+    return calculate_european_call_option_payoff(OPTION_STRIKE_PRICE, average_point)
     
-    # Calculate average final prices from the simulated paths
-    avg_final_price: float = calculate_average_final_price(option_pricing_data, stock_names)
-    # Calculate maximum final prices from the simulated paths
-    max_final_prices: List[float] = calculate_max_final_prices(option_pricing_data, stock_names)
-    # Check if the average stock price outperformed expectations
-    average_outperform: bool = check_if_average_outperformed(avg_final_price, option_pricing_data, stock_names)
-    # Check if the maximum stock price outperformed expectations
-    max_outperform: bool = check_if_max_outperformed(max_final_prices, option_pricing_data, stock_names)
-    # Calculate basket option payoffs based on pricing data
-    basket_option_payoffs: float = calculate_basket_option_payoffs(option_pricing_data, stock_names)
-    # Output the results of the simulation
-    print(f"--- {simulation_title} ---")
-    print("Scenario 1")
-    print(f"Out perform average: {average_outperform}")
-    print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${avg_final_price:.2f}")
-    print(f"Option payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
-    print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
-    print()
-    print("Scenario 2:")
-    print(f"Out perform max: {max_outperform}")
-    print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${np.average(max_final_prices):.2f}")
-    print(f"Option payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
-    print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
-    print()
+def get_max_basket_option_payoff(max_point):
+    return calculate_european_call_option_payoff(OPTION_STRIKE_PRICE, max_point)
+
+def calculate_european_call_option_payoff(strike_price: float, final_stock_price: float) -> float:
+    # Calculate the payoff for a European call option
+    return max(final_stock_price - strike_price, 0)  # Payoff formula
 
 def generate_stocks_price_paths(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str]) -> List[np.ndarray]:
     # Generate simulated stock price paths based on distributions
@@ -292,72 +319,6 @@ def generate_stocks_price_paths(stock_distributions: Dict[str, Dict[str, Any]], 
 
     return stocks_price_paths
 
-def calculate_basket_option_payoffs(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> float:
-    # Calculate the total basket option payoffs across all stock paths
-    total_basket_option_payoffs: float = 0
-    for i in range(len(stock_names)):
-        option_payoffs: np.ndarray = option_pricing_data[i][0]
-        avg_option_payoffs: float = float(np.average(option_payoffs))  # Average payoff for each stock
-        total_basket_option_payoffs += avg_option_payoffs  # Accumulate payoffs
-
-    total_basket_option_payoffs /= len(stock_names)  # Average across all stocks
-    return total_basket_option_payoffs
-
-def check_if_average_outperformed(avg_final_price: float, option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> bool:
-    # Check if average final price outperformed expected option payoffs
-    average_outperform: bool = True
-    for i in range(len(stock_names)):
-        option_payoffs: np.ndarray = option_pricing_data[i][0]
-        avg_option_payoff: float = float(np.average(option_payoffs))
-        if avg_option_payoff < avg_final_price:
-            average_outperform = False  # If not outperformed, set flag to False
-            break
-    return average_outperform
-
-def check_if_max_outperformed(max_final_prices: List[float], option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> bool:
-    # Check if maximum final prices outperformed expected option payoffs
-    max_outperform: bool = True
-    for i in range(len(stock_names)):
-        option_payoffs: np.ndarray = option_pricing_data[i][0]
-        avg_option_payoff: float = float(np.average(option_payoffs))
-        for max_final_price in max_final_prices:
-            if avg_option_payoff <= max_final_price:
-                max_outperform = False  # If not outperformed, set flag to False
-            else:
-                max_outperform = True
-                break
-    return max_outperform
-
-def calculate_max_final_prices(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> List[float]:
-    # Calculate the maximum final prices from the option pricing data
-    max_final_prices: List[float] = []
-    for i in range(len(stock_names)):
-        final_price: float = max(option_pricing_data[i][1])  # Get the maximum final price
-        max_final_prices.append(final_price)  # Append to the list
-    return max_final_prices
-
-def calculate_average_final_price(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> float:
-    # Calculate the average final price across all stocks
-    avg_final_price: float = 0
-    for i in range(len(stock_names)):
-        final_prices: np.ndarray = option_pricing_data[i][1]  # Get final prices
-        avg_final_price += np.sum(final_prices)  # Accumulate total final prices
-    avg_final_price /= (NUM_SIMULATION_PATHS * len(stock_names))  # Average across all stocks
-    return avg_final_price
-
-def plot_simulated_stock_predictions(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str], stocks_price_paths: List[np.ndarray]) -> None:
-    # Plot the simulated stock price paths
-    for i in range(len(stock_names)):
-        distribution_name: str = stock_distributions[stock_names[i]]['name']
-        # Create a new figure for plotting
-        plt.figure(figsize=(12, 6))
-        for j in range(min(NUM_SIMULATION_PATHS, 10)):
-            plt.plot(stocks_price_paths[i][j])  # Plot a limited number of paths
-        plt.xlabel('Days')  # X-axis label
-        plt.ylabel('Stock Price')  # Y-axis label
-        plt.title(f"Simulated {stock_names[i]} Price Paths Using {distribution_name} Distribution")  # Title
-        plt.show()  # Show the plot
-
 def create_stock_price_paths(
         random_generator: Callable[[], float], initial_stock_price: float, drift_rate: float, volatility_rate: float
 ) -> np.ndarray:
@@ -370,27 +331,6 @@ def create_stock_price_paths(
             current_price += price_change  # Update current price
             stock_price_paths[i, t] = current_price  # Store the price
     return stock_price_paths
-
-def calculate_european_call_option_payoff(strike_price: float, final_stock_price: float) -> float:
-    # Calculate the payoff for a European call option
-    return max(final_stock_price - strike_price, 0)  # Payoff formula
-
-def calculate_basket_option_pricing(
-        stocks_price_paths: List[np.ndarray]
-) -> List[Tuple[np.ndarray, np.ndarray]]:
-    # Calculate the basket option pricing based on the simulated stock paths
-    option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = []
-    for i in range(len(stocks_price_paths)):
-        price_paths: np.ndarray = stocks_price_paths[i]  # Get the price paths for the current stock
-        option_payoffs: np.ndarray = np.zeros(price_paths.shape[0])  # Initialize option payoffs array
-        final_prices: np.ndarray = np.zeros(price_paths.shape[0])  # Initialize final prices array
-
-        for j in range(price_paths.shape[0]):
-            final_price: float = float(price_paths[j, -1])  # Get the final price for the current path
-            final_prices[j] = final_price  # Store the final price
-            option_payoffs[j] = calculate_european_call_option_payoff(OPTION_STRIKE_PRICE, final_price) / (1 + RISK_FREE_RATE)  # Calculate discounted option payoff
-        option_pricing_data.append((option_payoffs, final_prices))  # Store payoffs and final prices
-    return option_pricing_data
 
 if __name__ == '__main__':
     main()  # Run the main function to start the simulation
