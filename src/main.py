@@ -38,9 +38,6 @@ TOTAL_TIME_YEARS: float = 1.0  # Total duration of simulation in years
 OPTION_STRIKE_PRICE: float = 100.0  # Strike price for the option
 RISK_FREE_RATE: float = 0.01  # Risk-free interest rate
 
-# TODO move related functions into namespaces for flow clarity
-# TODO add numba
-
 def main() -> None:
     # Dictionary to store fitted distributions for each stock
     stock_fitted_distributions: Dict[str, str | Dict[str, Any]] = {
@@ -105,7 +102,7 @@ def get_fitted_distribution_from_stock_data(file_path: str, stock_name: str) -> 
 
 def select_best_fitted_distribution(normalized_data: pd.Series, raw_data: pd.Series, fitted_distributions: Dict[str, Dict[str, Tuple]], stock_name: str) -> Optional[Dict[str, Any]]:
     # Calculate goodness of fit statistics for fitted distributions
-    goodness_of_fit_results: Dict[str, Any] = calculate_goodness_of_fit(raw_data, fitted_distributions)
+    goodness_of_fit_results: Dict[str, Any] = calculate_goodness_of_fit(normalized_data, raw_data, fitted_distributions)
 
     # Identify the best-fitting distribution based on p-value
     best_fit_result = max(goodness_of_fit_results.values(), key=lambda x: x.pvalue)
@@ -220,11 +217,14 @@ def plot_fitted_distribution_models(normalized_data: pd.Series, fitted_models: D
 
     plt.legend()  # Show legend for the plot
 
-def calculate_goodness_of_fit(raw_data: pd.Series, fitted_models: Dict[str, Dict[str, Tuple]]) -> Dict[str, Any]:
+def calculate_goodness_of_fit(normalized_data: pd.Series, raw_data: pd.Series, fitted_models: Dict[str, Dict[str, Tuple]]) -> Dict[str, Any]:
     # Calculate goodness of fit statistics for each fitted model
     goodness_of_fit_results: Dict[str, Any] = {}
     for distribution_name, params in fitted_models.items():
-        goodness_of_fit_results[distribution_name] = ss.kstest(raw_data, distribution_name, args=params['non_normalized'])
+        if distribution_name == "beta":
+            goodness_of_fit_results[distribution_name] = ss.kstest(normalized_data, distribution_name, args=params['non_normalized'])
+        else:
+            goodness_of_fit_results[distribution_name] = ss.kstest(raw_data, distribution_name, args=params['non_normalized'])
     return goodness_of_fit_results
 
 def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]) -> None:
@@ -235,8 +235,6 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     # Generate simulated stock price paths
     stocks_price_paths: List[np.ndarray] = generate_stocks_price_paths(stock_distributions, stock_names)
     
-    # TODO average out the stock price paths to get one so we only get one graph
-
     # Calculate basket option pricing data based on simulated paths
     option_pricing_data: List[Tuple[np.ndarray, np.ndarray]] = calculate_basket_option_pricing(stocks_price_paths)
 
