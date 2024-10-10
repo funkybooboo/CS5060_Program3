@@ -26,5 +26,14 @@ TODO: report any insights from the simulations, report the calculated option pri
 
 
 ### Part 3: Stochastic Jumps and Basket Option Pricing
-Deliverables: Python code, results of the option prices for both scenarios, and a comparison of the two.
+___
+The best fit distribution for both stock1 and stock2 is the Lognormal distribution.  So, we start by calculating the drift and volatility_rates individually for each of the stocks, and then pair that with all of the constants used in Part 2 to begin running our simulation, with exception to the initial_stock_price which we set to be the latest entry from the previous year data given in the csv.
 
+For scenario 1, we will be averaging the price at maturity across all 5,000 iterations for each stock as well as our basket option, and then compare them against eachother. The average of the basket option pays off if it outperforms the average between both stock1 and stock2 as gathered from the part 2 monte carlo simulations. 
+
+For scenario 2, we will compare the max of the mature basket options against the max value of the simulated values of each stock1 and stock2 individually. The basket option pays off when it outperforms either of the two provided maxes. 
+
+TODO: report findings from graphs
+TODO: report findings from outperformances
+
+The findings for both scenarios are discussed based on the simulation result
