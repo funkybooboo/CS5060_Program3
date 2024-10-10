@@ -246,7 +246,7 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     print()
 
 def print_stats(option_pricing_data, stock_names):
-    print("Average Basket Option")
+    print("Average Basket Option\n")
 
     # Initialize lists to store averages for stock prices and payoffs
     average_stock_prices = []
@@ -272,21 +272,21 @@ def print_stats(option_pricing_data, stock_names):
         paths_exceeding_strike.append(count_exceeding_strike)
 
         print(f"Stock: {stock_names[i]}")
-        print(f"  Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${average_stock_price:.2f}")
-        print(f"  Minimum stock price: ${min_stock_price:.2f}")
-        print(f"  Maximum stock price: ${max_stock_price:.2f}")
-        print(f"  Standard Deviation of stock prices: ${std_dev_stock_price:.2f}")
-        print(f"  Count of paths exceeding strike price: {count_exceeding_strike}")
-        print(f"  Average payoff (option block of 100): ${average_payoff * 100:.2f}")
-        print(f"  Cost of option: ${average_payoff:.2f}")
+        print(f"\tAverage stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${average_stock_price:.2f}")
+        print(f"\tMinimum stock price: ${min_stock_price:.2f}")
+        print(f"\tMaximum stock price: ${max_stock_price:.2f}")
+        print(f"\tStandard Deviation of stock prices: ${std_dev_stock_price:.2f}")
+        print(f"\tCount of paths exceeding strike price: {count_exceeding_strike}")
+        print(f"\tAverage payoff (option block of 100): ${average_payoff * 100:.2f}")
+        print(f"\tCost of option: ${average_payoff:.2f}\n")
 
     overall_average_stock_price = np.mean(average_stock_prices)
     overall_average_payoff = np.mean(average_payoffs)
 
-    print(f"\nOverall Average Stock Price: ${overall_average_stock_price:.2f}")
-    print(f"Overall Average Basket Option Payoff: ${overall_average_payoff:.2f}")
+    print(f"Overall Average Stock Price: ${overall_average_stock_price:.2f}")
+    print(f"Overall Average Basket Option Payoff: ${overall_average_payoff:.2f}\n")
 
-    print("Max Basket Option")
+    print("Max Basket Option\n")
 
     # Calculate maximum option price for each stock
     for i, (option_payoffs, _) in enumerate(option_pricing_data):
@@ -295,7 +295,6 @@ def print_stats(option_pricing_data, stock_names):
 
     overall_max_payoff = np.max([np.max(option_payoffs) for option_payoffs, _ in option_pricing_data])
     print(f"Overall Max Basket Option Payoff: ${overall_max_payoff:.2f}")
-
 
 def calculate_basket_option_pricing(
         stocks_price_paths: List[np.ndarray]
