@@ -44,7 +44,7 @@ RISK_FREE_RATE: float = 0.01  # Risk-free interest rate
 def main() -> None:
     # Dictionary to store fitted distributions for each stock
     stock_fitted_distributions: Dict[str, str | Dict[str, Any]] = {
-        "simulation_title": "Predicting the feuture with past data",
+        "simulation_title": "Predicting the future with past data",
     }
 
     # Part 1: Fit distributions to stock data
@@ -233,7 +233,7 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     stock_names: List[str] = [name for name in stock_distributions.keys() if name != 'simulation_title']
 
     # Generate simulated stock price paths
-    stocks_price_paths: List[np.ndarray] = generate_stock_price_paths(stock_distributions, stock_names)
+    stocks_price_paths: List[np.ndarray] = generate_stocks_price_paths(stock_distributions, stock_names)
     
     # TODO average out the stock price paths to get one so we only get one graph
 
@@ -244,6 +244,9 @@ def simulate_and_plot_stock(stock_distributions: Dict[str, str | Dict[str, Any]]
     plot_simulated_stock_predictions(stock_distributions, stock_names, stocks_price_paths)
 
     print_stats(option_pricing_data, simulation_title, stock_names)
+    
+def average_stocks_price_paths(stocks_price_paths: List[np.ndarray]) -> List[np.ndarray]:
+    pass
 
 def print_stats(option_pricing_data, simulation_title, stock_names):
     # TODO fix the below logic
@@ -261,24 +264,19 @@ def print_stats(option_pricing_data, simulation_title, stock_names):
     # Output the results of the simulation
     print(f"--- {simulation_title} ---")
     print("Scenario 1")
-    if average_outperform:
-        print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${avg_final_price:.2f}")
-        print(f"Average payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
-        print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
-    else:
-        print("Did not outperform average, no payoff.")
+    print(f"Out perform average: {average_outperform}")
+    print(f"Average stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${avg_final_price:.2f}")
+    print(f"Option payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
+    print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
     print()
     print("Scenario 2:")
-    if max_outperform:
-        print(
-            f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${np.average(max_final_prices):.2f}")
-        print(f"Max payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
-        print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
-    else:
-        print("Did not outperform max, no payoff.")
+    print(f"Out perform max: {max_outperform}")
+    print(f"Max stock price after {int(1 / TIME_INCREMENT) * TOTAL_TIME_YEARS} days: ${np.average(max_final_prices):.2f}")
+    print(f"Option payoff for a block of 100 options: ${basket_option_payoffs * 100:.2f}")
+    print(f"Estimated cost of the option: ${basket_option_payoffs:.2f}")
     print()
 
-def generate_stock_price_paths(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str]) -> List[np.ndarray]:
+def generate_stocks_price_paths(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str]) -> List[np.ndarray]:
     # Generate simulated stock price paths based on distributions
     stocks_price_paths: List[np.ndarray] = []
     for i in range(len(stock_names)):
@@ -310,8 +308,8 @@ def check_if_average_outperformed(avg_final_price: float, option_pricing_data: L
     average_outperform: bool = True
     for i in range(len(stock_names)):
         option_payoffs: np.ndarray = option_pricing_data[i][0]
-        avg_option_payoffs: float = float(np.average(option_payoffs))
-        if avg_final_price > avg_option_payoffs:
+        avg_option_payoff: float = float(np.average(option_payoffs))
+        if avg_option_payoff < avg_final_price:
             average_outperform = False  # If not outperformed, set flag to False
             break
     return average_outperform
@@ -321,10 +319,12 @@ def check_if_max_outperformed(max_final_prices: List[float], option_pricing_data
     max_outperform: bool = True
     for i in range(len(stock_names)):
         option_payoffs: np.ndarray = option_pricing_data[i][0]
-        avg_option_payoffs: float = float(np.average(option_payoffs))
+        avg_option_payoff: float = float(np.average(option_payoffs))
         for max_final_price in max_final_prices:
-            if max_final_price >= avg_option_payoffs:
+            if avg_option_payoff <= max_final_price:
                 max_outperform = False  # If not outperformed, set flag to False
+            else:
+                max_outperform = True
                 break
     return max_outperform
 
@@ -338,12 +338,12 @@ def calculate_max_final_prices(option_pricing_data: List[Tuple[np.ndarray, np.nd
 
 def calculate_average_final_price(option_pricing_data: List[Tuple[np.ndarray, np.ndarray]], stock_names: List[str]) -> float:
     # Calculate the average final price across all stocks
-    total_avg_final_price: float = 0
+    avg_final_price: float = 0
     for i in range(len(stock_names)):
         final_prices: np.ndarray = option_pricing_data[i][1]  # Get final prices
-        total_avg_final_price += np.sum(final_prices)  # Accumulate total final prices
-    total_avg_final_price /= (NUM_SIMULATION_PATHS * len(stock_names))  # Average across all stocks
-    return total_avg_final_price
+        avg_final_price += np.sum(final_prices)  # Accumulate total final prices
+    avg_final_price /= (NUM_SIMULATION_PATHS * len(stock_names))  # Average across all stocks
+    return avg_final_price
 
 def plot_simulated_stock_predictions(stock_distributions: Dict[str, Dict[str, Any]], stock_names: List[str], stocks_price_paths: List[np.ndarray]) -> None:
     # Plot the simulated stock price paths
